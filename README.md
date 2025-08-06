@@ -1,6 +1,44 @@
-# Docker UI
+# <img src="assets/icon.png" alt="Docker UI" width="32" height="32"> Docker UI
 
 Uma aplicação de monitoramento Docker construída com Rust e Slint, oferecendo uma interface gráfica moderna para visualizar estatísticas e gerenciar containers.
+
+<p align="center">
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-000000?style=for-the-badge&logo=rust&logoColor=white"/>
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white"/>
+  <img alt="GUI" src="https://img.shields.io/badge/GUI-Slint-blue?style=for-the-badge"/>
+  <img alt="Real-time" src="https://img.shields.io/badge/Real--time-Monitoring-green?style=for-the-badge"/>
+</p>
+
+## 📸 Screenshots
+
+<p align="center">
+  <img src="images/Captura de tela de 2025-08-06 11-24-16.png" alt="Dashboard Principal" width="600"/>
+  <br>
+  <em>Dashboard principal com estatísticas em tempo real</em>
+</p>
+
+<p align="center">
+  <img src="images/Captura de tela de 2025-08-06 11-24-20.png" alt="Gráficos de Monitoramento" width="600"/>
+  <br>
+  <em>Gráficos de CPU e memória em tempo real</em>
+</p>
+
+### 🖼️ Galeria de Interface
+
+<table>
+  <tr>
+    <td align="center">
+      <img src="images/Captura de tela de 2025-08-06 11-24-16.png" width="300"/>
+      <br><strong>Dashboard Overview</strong>
+      <br><em>Cards de estatísticas e status</em>
+    </td>
+    <td align="center">
+      <img src="images/Captura de tela de 2025-08-06 11-24-20.png" width="300"/>
+      <br><strong>Monitoramento em Tempo Real</strong>
+      <br><em>Gráficos de CPU, memória e rede</em>
+    </td>
+  </tr>
+</table>
 
 ## ✨ Funcionalidades
 
@@ -101,6 +139,21 @@ A aplicação possui:
 - **Gráficos de linha** para dados temporais
 - **Status visual** com cores indicativas
 - **Layout responsivo** adaptável
+
+### 🎯 Ícones disponíveis
+
+A aplicação inclui ícones em múltiplos tamanhos para diferentes usos:
+
+| Tamanho | Arquivo | Uso |
+|---------|---------|-----|
+| 32x32   | `assets/32x32.png` | Ícone pequeno |
+| 48x48   | `assets/48x48.png` | Ícone médio |
+| 64x64   | `assets/64x64.png` | Ícone padrão |
+| 96x96   | `assets/96x96.png` | Ícone grande |
+| 128x128 | `assets/128x128.png` | Ícone HD |
+| -       | `assets/icon.png` | Ícone principal |
+| -       | `assets/icon.ico` | Windows |
+| -       | `assets/icon.icns` | macOS |
 
 ## 🐛 Solução de problemas
 
