@@ -72,8 +72,14 @@ export component AppWindow inherits Window {
     callback screen-changed(int);
 
     title: "Docker UI";
-    width: 950px;
-    height: 1024px;
+    min-width: 950px;
+    max-width: 1300px;
+    preferred-width: 950px;
+    min-height: 850px;
+    max-height: 1500px;
+    preferred-height: 950px;
+    always-on-top: false;
+    no-frame: false;
     background: #1A1B1B;
 
     VerticalLayout {
@@ -153,7 +159,7 @@ export component AppWindow inherits Window {
 
         // Conteúdo principal
         Rectangle {
-            height: parent.height - 32px - 48px - 25px;
+            // height: parent.height - 32px - 48px - 25px;
 
             background: #1A1B1B;
             vertical-stretch: 1;
