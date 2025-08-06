@@ -504,26 +504,23 @@ export component AppWindow inherits Window {
             border-width: 1px;
             border-color: transparent;
 
-
-            // Linha separadora do cabeçalho
-            Rectangle {
-                width: 100%;
-                height: 1px;
-                background: #E5E8EB;
-                y: parent.height - 1px;
-            }
-
-            HorizontalLayout {
-                padding: 16px;
-                alignment: space-between;
+            VerticalLayout {
+                alignment: center;
+                padding-left: 16px;
 
                 HorizontalLayout {
-                    spacing: 24px;
                     alignment: start;
+                    spacing: 10px;
 
-                    // Botão principal do dashboard
-                    HeaderButton {
-                        text: "Docker UI";
+                // Botão principal do dashboard
+                HeaderButton {
+                        Text {
+                            text: "Docker UI";
+                            color: #ffffff;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+
                         clicked => {
                             root.screen-changed(0);
                         }
@@ -562,11 +559,19 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+
+            // Linha separadora do cabeçalho
+            Rectangle {
+                width: 100%;
+                height: 1px;
+                background: #464747;
+                y: parent.height - 1px;
+            }
         }
 
         // Conteúdo principal
         Rectangle {
-            height: parent.height - 32px - 48px - 32px;
+            height: parent.height - 32px - 48px - 25px;
 
             background: #1A1B1B;
             vertical-stretch: 1;
@@ -596,12 +601,11 @@ export component AppWindow inherits Window {
 
         // Rodapé com status do Docker
         Rectangle {
-            height: 32px;
+            height: 25px;
             background: #1A1B1B;
             vertical-stretch: 0;
 
             HorizontalLayout {
-                padding: 4px;
                 padding-left: 8px;
                 alignment: start;
 
