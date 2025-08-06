@@ -70,8 +70,56 @@ Uma aplicação de monitoramento Docker construída com Rust e Slint, oferecendo
 
 2. **Compile e execute:**
    ```bash
+   # Usando Cargo diretamente
    cargo run
+   
+   # Ou usando Makefile
+   make dev
    ```
+
+## 📦 Build e Distribuição
+
+### Build rápido para desenvolvimento
+```bash
+make build          # Build release
+make dev            # Run em modo desenvolvimento
+make watch          # Run com auto-reload
+```
+
+### Geração de pacote .deb
+```bash
+# Gerar pacote .deb versionado
+./build-deb.sh
+# ou
+make deb
+
+# Build completo (check, test, build, package)
+make release
+```
+
+### Gerenciamento de builds
+```bash
+# Listar todos os builds
+make list-builds
+
+# Limpar builds antigos (manter 5 mais recentes)
+make clean-builds
+
+# Limpar todos os builds
+make clean-all-builds
+```
+
+### Instalação local
+```bash
+# Instalar pacote .deb localmente
+make install
+
+# Desinstalar
+make uninstall
+
+# Reinstalar
+make reinstall
+```
 
 ## 🛠️ Desenvolvimento
 
@@ -114,9 +162,13 @@ Cada componente é independente e reutilizável, facilitando manutenção e dese
 │   ├── network.slint    # Tela de redes
 │   └── volumes.slint    # Tela de volumes
 ├── assets/
-│   └── icon.png         # Ícones da aplicação
+│   └── *.png            # Ícones da aplicação (múltiplos tamanhos)
 ├── images/
 │   └── *.png            # Screenshots da aplicação
+├── builds/              # Pacotes .deb gerados (criado automaticamente)
+├── build-deb.sh         # Script de build versionado
+├── clean-builds.sh      # Script de limpeza de builds
+├── Makefile             # Sistema de build automatizado
 └── Cargo.toml           # Dependências do projeto
 ```
 
@@ -156,6 +208,12 @@ A aplicação utiliza uma arquitetura modular com componentes Slint separados:
 - **`main.rs`** - Orquestração e estado da aplicação
 - **`docker.rs`** - API Docker e coleta de métricas
 - **`chart.rs`** - Renderização de gráficos em tempo real
+
+### Sistema de Build
+- **`build-deb.sh`** - Script de build versionado para pacotes .deb
+- **`clean-builds.sh`** - Gerenciamento e limpeza de builds antigos
+- **`Makefile`** - Automação completa do processo de build
+- **`builds/`** - Diretório de saída para pacotes gerados
 
 ## 🔧 Tecnologias
 
