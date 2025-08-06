@@ -45,8 +45,10 @@ Uma aplicação de monitoramento Docker construída com Rust e Slint, oferecendo
 - 📊 **Dashboard em tempo real** - Monitoramento de CPU, memória e rede
 - 📈 **Gráficos interativos** - Visualização de dados históricos com plotters
 - 🐳 **Status do Docker** - Verificação automática do estado do daemon
-- 📋 **Informações detalhadas** - Containers, imagens, volumes e redes
-- 🎨 **Interface moderna** - Design dark com tema responsivo
+- 📋 **Gerenciamento completo** - Containers, imagens, volumes e redes
+- 🎨 **Interface modular** - Componentes separados e reutilizáveis
+- 🔄 **Arquitetura limpa** - Separação de responsabilidades UI/lógica
+- ⚡ **Performance otimizada** - Renderização eficiente com Slint
 
 ## 🚀 Pré-requisitos
 
@@ -80,7 +82,21 @@ cargo install cargo-watch
 
 # Executar em modo watch
 cargo watch -x run
+
+# Watch com limpeza de tela
+cargo watch -c -x run
 ```
+
+### Desenvolvimento de UI
+A interface utiliza **imports modulares** do Slint:
+```slint
+import { DashboardView } from "dashboard.slint";
+import { ContainersList } from "containers.slint";
+import { ImagesList } from "images.slint";
+// ...
+```
+
+Cada componente é independente e reutilizável, facilitando manutenção e desenvolvimento.
 
 ### Estrutura do projeto
 ```
@@ -90,8 +106,17 @@ cargo watch -x run
 │   ├── chart.rs         # Renderização de gráficos
 │   └── build.rs         # Script de compilação Slint
 ├── ui/
-│   ├── app.slint        # Interface principal
-│   └── containers.slint # Componentes de containers
+│   ├── app.slint        # Interface principal e janela
+│   ├── dashboard.slint  # Dashboard com estatísticas
+│   ├── containers.slint # Tela de containers
+│   ├── container.slint  # Componentes individuais de container
+│   ├── images.slint     # Tela de imagens Docker
+│   ├── network.slint    # Tela de redes
+│   └── volumes.slint    # Tela de volumes
+├── assets/
+│   └── icon.png         # Ícones da aplicação
+├── images/
+│   └── *.png            # Screenshots da aplicação
 └── Cargo.toml           # Dependências do projeto
 ```
 
@@ -113,6 +138,24 @@ cargo watch -x run
    - Gráficos são atualizados a cada segundo
    - Status do Docker é verificado automaticamente
    - Dados históricos mantêm últimos 60 pontos
+
+## 🏗️ Arquitetura
+
+### Interface Modular
+A aplicação utiliza uma arquitetura modular com componentes Slint separados:
+
+- **`app.slint`** - Janela principal e navegação
+- **`dashboard.slint`** - Dashboard com estatísticas e gráficos
+- **`containers.slint`** - Lista e gerenciamento de containers
+- **`container.slint`** - Componentes individuais de container
+- **`images.slint`** - Gerenciamento de imagens Docker
+- **`network.slint`** - Configuração de redes
+- **`volumes.slint`** - Gerenciamento de volumes
+
+### Backend Rust
+- **`main.rs`** - Orquestração e estado da aplicação
+- **`docker.rs`** - API Docker e coleta de métricas
+- **`chart.rs`** - Renderização de gráficos em tempo real
 
 ## 🔧 Tecnologias
 
@@ -195,12 +238,15 @@ Este projeto está licenciado sob a [MIT License](LICENSE).
 
 ## 🚀 Próximas funcionalidades
 
-- [ ] Gerenciamento completo de containers (start/stop/restart)
-- [ ] Visualização de logs em tempo real
-- [ ] Exportação de métricas
-- [ ] Configuração de alertas
-- [ ] Suporte a Docker Compose
-- [ ] Temas personalizáveis
+- [x] **Arquitetura modular** - Componentes Slint separados ✅
+- [x] **Interface responsiva** - Layout otimizado ✅
+- [ ] **Gerenciamento de containers** - Start/stop/restart via UI
+- [ ] **Visualização de logs** - Logs em tempo real
+- [ ] **Métricas avançadas** - Histórico e exportação
+- [ ] **Docker Compose** - Suporte a stacks
+- [ ] **Temas personalizáveis** - Light/Dark mode
+- [ ] **Configuração de alertas** - Notificações
+- [ ] **Multi-host support** - Múltiplos Docker daemons
 
 ---
 
