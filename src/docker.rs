@@ -244,18 +244,18 @@ impl DockerManager {
 
     // Coleta uso total do sistema Docker
     pub async fn get_docker_system_usage(&self) -> Result<DockerSystemUsage> {
-        let containers = self.list_containers().await?;
+        let containers = self.list_running_containers().await?;
         let mut containers_stats = Vec::new();
         // Totalizadores de recursos
         let mut total_cpu = 0.0;
         let mut total_memory_usage = 0u64;
-        let mut total_memory_limit = 0u64;
+        let total_memory_limit = self.get_system_memory_limit().await?;
         let mut total_network_rx = 0u64;
         let mut total_network_tx = 0u64;
         let mut total_block_read = 0u64;
         let mut total_block_write = 0u64;
-
         // Itera por todos os containers coletando estatísticas
+
         for container in containers {
             if let Ok(Some(stats)) = self
                 .docker
@@ -280,6 +280,7 @@ impl DockerManager {
                     .as_ref()
                     .and_then(|m| m.limit)
                     .unwrap_or(0);
+
                 let memory_percentage = if memory_limit > 0 {
                     (memory_usage as f64 / memory_limit as f64) * 100.0
                 } else {
@@ -304,7 +305,6 @@ impl DockerManager {
 
                 total_cpu += cpu_percentage;
                 total_memory_usage += memory_usage;
-                total_memory_limit += memory_limit;
                 total_network_rx += network_rx;
                 total_network_tx += network_tx;
                 total_block_read += block_read;
@@ -338,39 +338,37 @@ impl DockerManager {
                 cpu_stats.cpu_usage.as_ref(),
                 precpu_stats.cpu_usage.as_ref(),
             ) {
-                // Calcula diferenças entre medições
-                let cpu_delta = cpu_usage
-                    .total_usage
-                    .unwrap_or(0)
-                    .saturating_sub(precpu_usage.total_usage.unwrap_or(0));
-                let system_delta = cpu_stats
-                    .system_cpu_usage
-                    .unwrap_or(0)
-                    .saturating_sub(precpu_stats.system_cpu_usage.unwrap_or(0));
+                let cpu_total = cpu_usage.total_usage.unwrap_or(0);
+                let cpu_total_prev = precpu_usage.total_usage.unwrap_or(0);
+                let system_total = cpu_stats.system_cpu_usage.unwrap_or(0);
+                let system_total_prev = precpu_stats.system_cpu_usage.unwrap_or(0);
 
-                // println!(
-                //     "CPU Debug - cpu_delta: {}, system_delta: {}",
-                //     cpu_delta, system_delta
-                // );
+                let cpu_delta = cpu_total.saturating_sub(cpu_total_prev);
+                let system_delta = system_total.saturating_sub(system_total_prev);
 
-                if system_delta > 0 && cpu_delta > 0 {
-                    let number_cpus = cpu_stats.online_cpus.unwrap_or(1) as f64;
-
-                    // Calcula porcentagem de CPU com fallback
-                    let cpu_percent = if system_delta < 1000000 {
-                        // Sistema delta muito pequeno - usa estimativa por tempo
-                        (cpu_delta as f64 / 1000000000.0) * 100.0
-                    } else {
-                        (cpu_delta as f64 / system_delta as f64) * number_cpus * 100.0
-                    };
-
-                    let result = cpu_percent.min(100.0 * number_cpus);
-                    // println!(
-                    //     "CPU Debug - calculated: {}%, number_cpus: {}",
-                    //     result, number_cpus
-                    // );
-                    return result;
+                // Evita divisão por zero e valores muito pequenos
+                if system_delta == 0 || cpu_delta == 0 {
+                    return 0.0;
                 }
+
+                let number_cpus = cpu_stats.online_cpus.unwrap_or(1) as f64;
+
+                // Algoritmo correto do Docker CLI
+                let cpu_percent = (cpu_delta as f64 / system_delta as f64) * number_cpus * 100.0;
+
+                // CORREÇÃO: Limita a 100% POR CONTAINER, não por sistema
+                let result = cpu_percent.min(100.0);
+
+                // Se ainda estiver muito alto, há um problema com os dados
+                if result > 100.0 {
+                    println!(
+                        "WARNING: CPU > 100% - cpu_delta: {}, system_delta: {}, cpus: {}",
+                        cpu_delta, system_delta, number_cpus
+                    );
+                    return 0.0; // Retorna 0 se dados parecem inválidos
+                }
+
+                return result;
             }
         }
         0.0
@@ -416,6 +414,45 @@ impl DockerManager {
             (read_bytes, write_bytes)
         } else {
             (0, 0)
+        }
+    }
+
+    // Função auxiliar para obter limite de memória do sistema
+    async fn get_system_memory_limit(&self) -> Result<u64> {
+        match self.docker.info().await {
+            Ok(info) => {
+                // Tenta obter memória total do sistema via Docker info
+                Ok(info.mem_total.unwrap_or(0) as u64)
+            }
+            Err(_) => {
+                // Fallback: lê do sistema de arquivos Linux
+                self.get_system_memory_from_meminfo()
+            }
+        }
+    }
+
+    // Função para ler memória do sistema via /proc/meminfo (Linux)
+    fn get_system_memory_from_meminfo(&self) -> Result<u64> {
+        use std::fs;
+
+        match fs::read_to_string("/proc/meminfo") {
+            Ok(content) => {
+                for line in content.lines() {
+                    if line.starts_with("MemTotal:") {
+                        if let Some(mem_str) = line.split_whitespace().nth(1) {
+                            if let Ok(mem_kb) = mem_str.parse::<u64>() {
+                                return Ok(mem_kb * 1024); // Converte KB para bytes
+                            }
+                        }
+                    }
+                }
+                Ok(0) // Se não conseguir encontrar, retorna 0
+            }
+            Err(_) => {
+                // Se não conseguir ler /proc/meminfo, usa um valor padrão
+                // ou retorna erro
+                Ok(8_589_934_592) // 8GB como fallback
+            }
         }
     }
 
