@@ -120,11 +120,11 @@ impl ChartRenderer {
                     .unwrap();
 
                 // Desenha pontos como círculos
-                chart
-                    .draw_series(data.iter().enumerate().map(|(i, point)| {
-                        Circle::new((i as f32, point.value), 3, line_color.filled())
-                    }))
-                    .unwrap();
+                // chart
+                //     .draw_series(data.iter().enumerate().map(|(i, point)| {
+                //         Circle::new((i as f32, point.value), 3, line_color.filled())
+                //     }))
+                //     .unwrap();
 
                 // Preenche área sob a curva com transparência
                 chart
