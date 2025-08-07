@@ -220,14 +220,6 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
                                             ui.set_memory_chart(memory_chart);
                                         }
                                     }
-
-                                    // Debug: mostra estatísticas no console se CPU > 5%
-                                    if stats.cpu_usage > 5.0 {
-                                        println!(
-                                            "CPU: {:.2}%, Memória: {:.2}%",
-                                            stats.cpu_usage, stats.memory_percentage
-                                        );
-                                    }
                                 }
                             })
                             .unwrap();
