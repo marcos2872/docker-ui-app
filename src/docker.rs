@@ -7,7 +7,12 @@ use bollard::{
 };
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
-use std::{fmt, process::Command};
+use std::{
+    collections::HashMap,
+    fmt,
+    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 // Informações básicas de um container
 #[derive(Debug, Serialize, Deserialize)]
@@ -39,9 +44,22 @@ impl fmt::Display for DockerStatus {
     }
 }
 
+// Cache para estatísticas anteriores (necessário para cálculo de delta)
+#[derive(Debug, Clone)]
+struct PreviousStats {
+    timestamp: u64,
+    cpu_total: u64,
+    system_total: u64,
+    network_rx: u64,
+    network_tx: u64,
+    block_read: u64,
+    block_write: u64,
+}
+
 // Gerenciador principal do Docker
 pub struct DockerManager {
     docker: Docker,
+    previous_stats: HashMap<String, PreviousStats>,
 }
 
 // Informações gerais do sistema Docker
@@ -56,9 +74,16 @@ pub struct DockerInfo {
     pub architecture: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CpuCalculate {
+    pub usage_cpu: f64,
+    pub online_cpus: u64,
+}
+
 // Uso total do sistema Docker
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DockerSystemUsage {
+    pub cpu_online: u64,
     pub cpu_usage: f64,
     pub memory_usage: u64,
     pub memory_limit: u64,
@@ -91,19 +116,22 @@ impl DockerManager {
         let docker = Docker::connect_with_socket_defaults()
             .context("Falha ao conectar com Docker daemon")?;
 
-        Ok(DockerManager { docker })
+        Ok(DockerManager {
+            docker,
+            previous_stats: HashMap::new(),
+        })
     }
 
     // Verifica se Docker daemon está respondendo
-    pub async fn is_docker_running(&self) -> Result<bool> {
-        match self.docker.ping().await {
-            Ok(_) => Ok(true),
-            Err(err) => {
-                println!("{}", err);
-                Ok(false)
-            }
-        }
-    }
+    // pub async fn is_docker_running(&self) -> Result<bool> {
+    //     match self.docker.ping().await {
+    //         Ok(_) => Ok(true),
+    //         Err(err) => {
+    //             println!("{}", err);
+    //             Ok(false)
+    //         }
+    //     }
+    // }
 
     // Verifica status do Docker via linha de comando
     pub fn check_docker_status(&self) -> DockerStatus {
@@ -243,19 +271,26 @@ impl DockerManager {
     }
 
     // Coleta uso total do sistema Docker
-    pub async fn get_docker_system_usage(&self) -> Result<DockerSystemUsage> {
+    pub async fn get_docker_system_usage(&mut self) -> Result<DockerSystemUsage> {
         let containers = self.list_running_containers().await?;
         let mut containers_stats = Vec::new();
+
         // Totalizadores de recursos
         let mut total_cpu = 0.0;
+        let mut online_cpu = 0;
         let mut total_memory_usage = 0u64;
         let total_memory_limit = self.get_system_memory_limit().await?;
         let mut total_network_rx = 0u64;
         let mut total_network_tx = 0u64;
         let mut total_block_read = 0u64;
         let mut total_block_write = 0u64;
-        // Itera por todos os containers coletando estatísticas
 
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        // Itera por todos os containers coletando estatísticas
         for container in containers {
             if let Ok(Some(stats)) = self
                 .docker
@@ -269,7 +304,10 @@ impl DockerManager {
                 .try_next()
                 .await
             {
-                let cpu_percentage = self.calculate_cpu_percentage(&stats);
+                let cpu =
+                    self.calculate_cpu_percentage_with_cache(&container.id, &stats, current_time);
+                let cpu_percentage = cpu.usage_cpu;
+                let cpus_online = cpu.online_cpus;
                 let memory_usage = stats
                     .memory_stats
                     .as_ref()
@@ -303,6 +341,7 @@ impl DockerManager {
                     block_write,
                 });
 
+                online_cpu = cpus_online;
                 total_cpu += cpu_percentage;
                 total_memory_usage += memory_usage;
                 total_network_rx += network_rx;
@@ -319,6 +358,7 @@ impl DockerManager {
         };
 
         Ok(DockerSystemUsage {
+            cpu_online: online_cpu,
             cpu_usage: total_cpu,
             memory_usage: total_memory_usage,
             memory_limit: total_memory_limit,
@@ -331,48 +371,130 @@ impl DockerManager {
         })
     }
 
-    // Calcula porcentagem de uso de CPU
-    fn calculate_cpu_percentage(&self, stats: &ContainerStatsResponse) -> f64 {
+    // Calcula CPU com cache de estatísticas anteriores
+    fn calculate_cpu_percentage_with_cache(
+        &mut self,
+        container_id: &str,
+        stats: &ContainerStatsResponse,
+        current_time: u64,
+    ) -> CpuCalculate {
         if let (Some(cpu_stats), Some(precpu_stats)) = (&stats.cpu_stats, &stats.precpu_stats) {
             if let (Some(cpu_usage), Some(precpu_usage)) = (
                 cpu_stats.cpu_usage.as_ref(),
                 precpu_stats.cpu_usage.as_ref(),
             ) {
                 let cpu_total = cpu_usage.total_usage.unwrap_or(0);
-                let cpu_total_prev = precpu_usage.total_usage.unwrap_or(0);
                 let system_total = cpu_stats.system_cpu_usage.unwrap_or(0);
-                let system_total_prev = precpu_stats.system_cpu_usage.unwrap_or(0);
 
-                let cpu_delta = cpu_total.saturating_sub(cpu_total_prev);
-                let system_delta = system_total.saturating_sub(system_total_prev);
+                // Verifica se temos estatísticas anteriores para este container
+                let cpu_delta;
+                let system_delta;
 
-                // Evita divisão por zero e valores muito pequenos
-                if system_delta == 0 || cpu_delta == 0 {
-                    return 0.0;
+                if let Some(prev_stats) = self.previous_stats.get(container_id) {
+                    // Usa dados do cache interno (mais precisos)
+                    cpu_delta = cpu_total.saturating_sub(prev_stats.cpu_total);
+                    system_delta = system_total.saturating_sub(prev_stats.system_total);
+                } else {
+                    // Primeira vez ou fallback para precpu_stats
+                    let cpu_total_prev = precpu_usage.total_usage.unwrap_or(0);
+                    let system_total_prev = precpu_stats.system_cpu_usage.unwrap_or(0);
+
+                    cpu_delta = cpu_total.saturating_sub(cpu_total_prev);
+                    system_delta = system_total.saturating_sub(system_total_prev);
                 }
 
-                let number_cpus = cpu_stats.online_cpus.unwrap_or(1) as f64;
+                // Atualiza cache para próxima iteração
+                let (network_rx, network_tx) = self.get_network_stats(stats);
+                let (block_read, block_write) = self.get_block_stats(stats);
 
-                // Algoritmo correto do Docker CLI
+                self.previous_stats.insert(
+                    container_id.to_string(),
+                    PreviousStats {
+                        timestamp: current_time,
+                        cpu_total,
+                        system_total,
+                        network_rx,
+                        network_tx,
+                        block_read,
+                        block_write,
+                    },
+                );
+
+                // Evita divisão por zero
+                if system_delta == 0 || cpu_delta == 0 {
+                    return CpuCalculate {
+                        online_cpus: 0,
+                        usage_cpu: 0.0,
+                    };
+                }
+
+                // Número de CPUs online (preferido) ou número de CPUs por core
+                let number_cpus = if let Some(online_cpus) = cpu_stats.online_cpus {
+                    online_cpus as f64
+                } else {
+                    // Fallback: conta CPUs disponíveis por percpu_usage
+                    if let Some(percpu_usage) = &cpu_usage.percpu_usage {
+                        // Conta apenas CPUs que não são zero (ativas)
+                        percpu_usage
+                            .iter()
+                            .filter(|&&usage| usage > 0)
+                            .count()
+                            .max(1) as f64
+                    } else {
+                        1.0 // Fallback mínimo
+                    }
+                };
+
+                // Fórmula correta do Docker CLI
                 let cpu_percent = (cpu_delta as f64 / system_delta as f64) * number_cpus * 100.0;
 
-                // CORREÇÃO: Limita a 100% POR CONTAINER, não por sistema
-                let result = cpu_percent.min(100.0);
-
-                // Se ainda estiver muito alto, há um problema com os dados
-                if result > 100.0 {
-                    println!(
-                        "WARNING: CPU > 100% - cpu_delta: {}, system_delta: {}, cpus: {}",
-                        cpu_delta, system_delta, number_cpus
+                // Debug para valores anômalos apenas se necessário
+                if cpu_percent > number_cpus * 100.0 {
+                    eprintln!(
+                        "DEBUG CPU [{}]: cpu_delta={}, system_delta={}, cpus={}, percent={:.2}%",
+                        &container_id[..12],
+                        cpu_delta,
+                        system_delta,
+                        number_cpus,
+                        cpu_percent
                     );
-                    return 0.0; // Retorna 0 se dados parecem inválidos
+                    // Para valores muito altos, pode haver problema nos dados
+                    return CpuCalculate {
+                        online_cpus: 0,
+                        usage_cpu: 0.0,
+                    };
                 }
 
-                return result;
+                // Limita resultado a um valor razoável
+
+                CpuCalculate {
+                    online_cpus: number_cpus as u64,
+                    usage_cpu: cpu_percent.max(0.0).min(100.0 * number_cpus),
+                }
+            } else {
+                CpuCalculate {
+                    online_cpus: 0,
+                    usage_cpu: 0.0,
+                }
+            }
+        } else {
+            CpuCalculate {
+                online_cpus: 0,
+                usage_cpu: 0.0,
             }
         }
-        0.0
     }
+
+    // Método para limpar cache antigo (executar periodicamente)
+    // pub fn cleanup_old_stats(&mut self, max_age_seconds: u64) {
+    //     let current_time = SystemTime::now()
+    //         .duration_since(UNIX_EPOCH)
+    //         .unwrap()
+    //         .as_secs();
+
+    //     self.previous_stats
+    //         .retain(|_, stats| current_time - stats.timestamp < max_age_seconds);
+    // }
 
     // Obtém estatísticas de rede (RX/TX)
     fn get_network_stats(&self, stats: &ContainerStatsResponse) -> (u64, u64) {

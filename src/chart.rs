@@ -32,7 +32,7 @@ impl ChartRenderer {
     }
 
     // Renderiza gráfico de linha e retorna imagem
-    pub fn render_line_chart(&self, data: &[ChartPoint]) -> Image {
+    pub fn render_line_chart(&self, data: &[ChartPoint], max_percentage: f32) -> Image {
         // Buffer RGB para a imagem
         let mut buffer = vec![0u8; (self.width * self.height * 3) as usize];
 
@@ -54,28 +54,23 @@ impl ChartRenderer {
 
                 // Calcula padding apropriado para o intervalo
                 let value_range = max_value - min_value;
-                let padding = if value_range < 100.00 && value_range > 90.00 {
-                    100.00
-                } else if value_range < 90.00 && value_range > 80.00 {
-                    90.00
-                } else if value_range < 80.00 && value_range > 70.00 {
-                    80.00
-                } else if value_range < 70.00 && value_range > 60.00 {
-                    70.00
-                } else if value_range < 60.00 && value_range > 50.00 {
-                    60.00
-                } else if value_range < 50.00 && value_range > 40.00 {
-                    50.00
-                } else if value_range < 40.00 && value_range > 30.00 {
-                    40.00
-                } else if value_range < 30.00 && value_range > 20.00 {
-                    30.00
-                } else if value_range < 20.00 && value_range > 10.00 {
-                    20.00
-                } else if value_range < 10.00 && value_range > 5.00 {
-                    10.00
-                } else {
-                    5.00
+                let padding = {
+                    // Calcula o próximo múltiplo de 10
+                    let mut rounded_value = (value_range / 10.0).ceil() * 10.0;
+
+                    // Garante que o padding não exceda o valor máximo
+                    if rounded_value > max_percentage {
+                        rounded_value = max_percentage;
+                    }
+
+                    // Lida com os casos de valores menores
+                    if rounded_value < 10.0 && rounded_value > 5.0 {
+                        10.0
+                    } else if rounded_value <= 5.0 {
+                        5.0
+                    } else {
+                        rounded_value
+                    }
                 };
                 let y_min = 0.0;
                 let y_max = padding;

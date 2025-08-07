@@ -1,12 +1,11 @@
 // Inclui módulos gerados pelo Slint
 slint::include_modules!();
 
-use futures_util::task::Spawn;
 // Imports necessários para timer, interface e threading
 use slint::{Timer, TimerMode, ToSharedString, Weak};
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 // Módulos locais
 mod chart;
@@ -14,23 +13,22 @@ mod docker;
 
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
-use docker::{ContainerInfo, DockerInfo, DockerManager, DockerStatus, DockerSystemUsage};
+use docker::{ContainerInfo, DockerInfo, DockerManager};
 
 // Struct Container para interface Slint
-#[derive(Clone)]
-struct Container {
-    id: slint::SharedString,
-    name: slint::SharedString,
-    image: slint::SharedString,
-    state: slint::SharedString,
-    status: slint::SharedString,
-}
+// #[derive(Clone)]
+// struct Container {
+//     id: slint::SharedString,
+//     name: slint::SharedString,
+//     image: slint::SharedString,
+//     state: slint::SharedString,
+//     status: slint::SharedString,
+// }
 
 // Estado global da aplicação
 #[derive(Clone)]
 struct AppState {
     chart_data: Arc<std::sync::Mutex<ChartData>>,
-    docker_manager: Option<Arc<DockerManager>>,
     cpu_chart_renderer: Arc<std::sync::Mutex<ChartRenderer>>,
     memory_chart_renderer: Arc<std::sync::Mutex<ChartRenderer>>,
 }
@@ -39,6 +37,7 @@ struct AppState {
 struct ChartData {
     cpu_points: VecDeque<ChartPoint>,
     memory_points: VecDeque<ChartPoint>,
+    last_update: Instant,
 }
 
 impl ChartData {
@@ -46,7 +45,13 @@ impl ChartData {
         Self {
             cpu_points: VecDeque::new(),
             memory_points: VecDeque::new(),
+            last_update: Instant::now() - Duration::from_secs(2), // Força primeira atualização
         }
+    }
+
+    // Verifica se precisa atualizar (reduzido para melhor sincronia com docker stats)
+    fn should_update(&self) -> bool {
+        self.last_update.elapsed().as_millis() >= 500 // 500ms entre atualizações
     }
 
     // Adiciona ponto de CPU (max 60 pontos)
@@ -57,6 +62,7 @@ impl ChartData {
         if self.cpu_points.len() > 60 {
             self.cpu_points.pop_front();
         }
+        self.last_update = Instant::now();
     }
 
     // Adiciona ponto de memória (max 60 pontos)
@@ -67,6 +73,7 @@ impl ChartData {
         if self.memory_points.len() > 60 {
             self.memory_points.pop_front();
         }
+        self.last_update = Instant::now();
     }
 }
 
@@ -75,9 +82,6 @@ impl ChartData {
 async fn main() -> Result<(), slint::PlatformError> {
     // Cria janela da aplicação
     let ui = AppWindow::new()?;
-
-    // Inicializa status do Docker
-    // ui.set_docker_status("Verificando...".into());
 
     // Configura renderizador de gráfico CPU (azul)
     let mut cpu_chart_renderer = ChartRenderer::new(800, 256);
@@ -89,7 +93,6 @@ async fn main() -> Result<(), slint::PlatformError> {
 
     let app_state = AppState {
         chart_data: Arc::new(std::sync::Mutex::new(ChartData::new())),
-        docker_manager: None,
         cpu_chart_renderer: Arc::new(std::sync::Mutex::new(cpu_chart_renderer)),
         memory_chart_renderer: Arc::new(std::sync::Mutex::new(memory_chart_renderer)),
     };
@@ -102,7 +105,7 @@ async fn main() -> Result<(), slint::PlatformError> {
 }
 
 // Configura interface Docker e sistema de monitoramento
-async fn setup_docker_ui(ui_weak: Weak<AppWindow>, mut app_state: AppState) -> Timer {
+async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer {
     let ui = ui_weak.upgrade().unwrap();
 
     let timer = Timer::default();
@@ -110,10 +113,8 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, mut app_state: AppState) -> T
     match DockerManager::new().await {
         Ok(docker_manager) => {
             ui.set_docker_status("Verificando...".into());
-            let docker_manager = Arc::new(docker_manager);
-            app_state.docker_manager = Some(docker_manager.clone());
 
-            let docker_status: DockerStatus = docker_manager.check_docker_status();
+            let docker_status = docker_manager.check_docker_status();
             ui.set_docker_status(docker_status.to_shared_string());
 
             // Carrega informações do Docker
@@ -128,44 +129,51 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, mut app_state: AppState) -> T
 
             let ui_weak_timer = ui_weak.clone();
             let chart_data_timer = app_state.chart_data.clone();
-            let docker_manager_timer = docker_manager.clone();
             let cpu_chart_renderer_timer = app_state.cpu_chart_renderer.clone();
             let memory_chart_renderer_timer = app_state.memory_chart_renderer.clone();
+
+            // Cria uma única instância do DockerManager compartilhada entre atualizações
+            let docker_manager_shared = Arc::new(tokio::sync::Mutex::new(docker_manager));
 
             // Timer para atualizar estatísticas a cada segundo
             timer.start(TimerMode::Repeated, Duration::from_secs(1), move || {
                 let ui_weak_clone = ui_weak_timer.clone();
                 let ui_weak_clone2 = ui_weak_timer.clone();
                 let chart_data_clone = chart_data_timer.clone();
-                let docker_manager_clone = docker_manager_timer.clone();
-                let docker_manager_clone2 = docker_manager_timer.clone();
                 let cpu_chart_renderer_clone = cpu_chart_renderer_timer.clone();
                 let memory_chart_renderer_clone = memory_chart_renderer_timer.clone();
+                let docker_manager_clone = docker_manager_shared.clone();
+                let docker_manager_clone2 = docker_manager_shared.clone();
 
+                // Task para informações gerais do Docker
                 tokio::spawn(async move {
-                    match docker_manager_clone2.get_docker_info().await {
-                        Ok(info) => {
-                            slint::invoke_from_event_loop(move || {
-                                if let Some(ui) = ui_weak_clone2.upgrade() {
-                                    update_docker_info(&ui, &info);
-                                }
-                            })
-                            .unwrap();
-                        }
-                        Err(err) => {
-                            eprintln!("Erro ao obter informações do Docker: {}", err);
-                        }
+                    let docker_manager = docker_manager_clone2.lock().await;
+                    if let Ok(info) = docker_manager.get_docker_info().await {
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_clone2.upgrade() {
+                                update_docker_info(&ui, &info);
+                            }
+                        })
+                        .unwrap();
                     }
                 });
 
-                // Executa coleta de estatísticas em background
+                // Task principal para estatísticas do sistema - USANDO A MESMA INSTÂNCIA
                 tokio::spawn(async move {
-                    match docker_manager_clone.get_docker_system_usage().await {
+                    let mut docker_manager = docker_manager_clone.lock().await;
+                    match docker_manager.get_docker_system_usage().await {
                         Ok(stats) => {
                             // Atualiza UI no thread principal
                             slint::invoke_from_event_loop(move || {
                                 if let Some(ui) = ui_weak_clone.upgrade() {
-                                    ui.set_cpu_usage_str(format!("{:.2}%", stats.cpu_usage).into());
+                                    ui.set_cpu_usage_str(
+                                        format!(
+                                            "{:.2}% | {}%",
+                                            stats.cpu_usage,
+                                            stats.cpu_online * 100
+                                        )
+                                        .into(),
+                                    );
                                     ui.set_memory_percentage_str(
                                         format_memory_display(
                                             stats.memory_percentage,
@@ -183,27 +191,42 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, mut app_state: AppState) -> T
                                             .into(),
                                     );
 
-                                    // Atualiza dados dos gráficos
+                                    // Atualiza dados dos gráficos com throttling adequado
                                     if let Ok(mut chart_data_lock) = chart_data_clone.lock() {
-                                        chart_data_lock.add_cpu_point(stats.cpu_usage as f32);
-                                        chart_data_lock
-                                            .add_memory_point(stats.memory_percentage as f32);
+                                        if chart_data_lock.should_update() {
+                                            chart_data_lock.add_cpu_point(stats.cpu_usage as f32);
+                                            chart_data_lock
+                                                .add_memory_point(stats.memory_percentage as f32);
 
-                                        // Renderiza gráfico CPU
-                                        let cpu_chart_renderer =
-                                            cpu_chart_renderer_clone.lock().unwrap();
-                                        let cpu_chart = cpu_chart_renderer.render_line_chart(
-                                            &chart_data_lock.cpu_points.make_contiguous(),
-                                        );
-                                        ui.set_cpu_chart(cpu_chart);
+                                            // Renderiza gráfico CPU
+                                            let cpu_chart_renderer =
+                                                cpu_chart_renderer_clone.lock().unwrap();
+                                            let cpu_chart = cpu_chart_renderer.render_line_chart(
+                                                &chart_data_lock.cpu_points.make_contiguous(),
+                                                stats.cpu_online as f32 * 100.0,
+                                            );
+                                            ui.set_cpu_chart(cpu_chart);
 
-                                        // Renderiza gráfico memória
-                                        let memory_chart_renderer =
-                                            memory_chart_renderer_clone.lock().unwrap();
-                                        let memory_chart = memory_chart_renderer.render_line_chart(
-                                            &chart_data_lock.memory_points.make_contiguous(),
+                                            // Renderiza gráfico memória
+                                            let memory_chart_renderer =
+                                                memory_chart_renderer_clone.lock().unwrap();
+                                            let memory_chart = memory_chart_renderer
+                                                .render_line_chart(
+                                                    &chart_data_lock
+                                                        .memory_points
+                                                        .make_contiguous(),
+                                                    100.0,
+                                                );
+                                            ui.set_memory_chart(memory_chart);
+                                        }
+                                    }
+
+                                    // Debug: mostra estatísticas no console se CPU > 5%
+                                    if stats.cpu_usage > 5.0 {
+                                        println!(
+                                            "CPU: {:.2}%, Memória: {:.2}%",
+                                            stats.cpu_usage, stats.memory_percentage
                                         );
-                                        ui.set_memory_chart(memory_chart);
                                     }
                                 }
                             })
@@ -257,14 +280,6 @@ fn setup_callbacks(ui_weak: Weak<AppWindow>, _app_state: AppState) {
     });
 }
 
-// fn update_system_stats(ui: &AppWindow, stats: &DockerSystemUsage) {
-//     // Format and set UI properties
-//     ui.set_cpu_usage_str(format!("{:.1}%", stats.cpu_usage).into());
-//     ui.set_memory_percentage_str(format!("{:.1}%", stats.memory_percentage).into());
-//     ui.set_network_rx_str(format!("RX {:.1} KB", stats.network_rx_bytes as f32 / 1024.0).into());
-//     ui.set_network_tx_str(format!("TX {:.1} KB", stats.network_tx_bytes as f32 / 1024.0).into());
-// }
-
 // Formata bytes em unidades legíveis
 fn format_bytes(bytes: u64) -> String {
     const KB: u64 = 1024;
@@ -289,21 +304,21 @@ fn format_memory_display(percentage: f64, usage: u64, limit: u64) -> String {
 
     if usage >= GB {
         format!(
-            "{:.2}% ({:.2} GB / {:.2} GB)",
+            "{:.2}% ({:.2} GB | {:.2} GB)",
             percentage,
             usage as f64 / GB as f64,
             limit as f64 / GB as f64
         )
     } else if usage < GB && limit >= GB {
         format!(
-            "{:.2}% ({:.2} MB / {:.2} GB)",
+            "{:.2}% ({:.2} MB | {:.2} GB)",
             percentage,
             usage as f64 / MB as f64,
             limit as f64 / GB as f64
         )
     } else {
         format!(
-            "{:.2}% ({:.2} MB / {:.2} MB)",
+            "{:.2}% ({:.2} MB | {:.2} MB)",
             percentage,
             usage as f64 / MB as f64,
             limit as f64 / MB as f64
