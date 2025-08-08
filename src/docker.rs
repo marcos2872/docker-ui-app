@@ -287,7 +287,7 @@ impl DockerManager {
         let image_infos: Vec<ImageInfo> = images
             .into_iter()
             .map(|image: ImageSummary| {
-                let in_use = image.containers > 2;
+                let in_use = image.containers > 0;
                 ImageInfo {
                     id: image.id.clone(),
                     tags: image.repo_tags.clone(),

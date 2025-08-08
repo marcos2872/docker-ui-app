@@ -172,18 +172,22 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
             // Configura callbacks de imagem
             setup_image_callbacks(ui_weak.clone(), image_ui_manager.clone());
 
-            // Inicialização manual das imagens
-            let ui_weak_init = ui_weak.clone();
-            let image_ui_manager_init = image_ui_manager.clone();
+            // Configura timer para atualizar imagens a cada segundo
+            let ui_weak_images = ui_weak.clone();
+            let image_ui_manager_timer = image_ui_manager.clone();
             tokio::spawn(async move {
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                {
-                    let mut manager = image_ui_manager_init.lock().await;
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+                
+                loop {
+                    interval.tick().await;
+                    
+                    let mut manager = image_ui_manager_timer.lock().await;
                     match manager.refresh_images().await {
                         Ok(()) => {
                             let images = manager.get_images();
+                            let ui_weak_clone = ui_weak_images.clone();
                             slint::invoke_from_event_loop(move || {
-                                if let Some(ui) = ui_weak_init.upgrade() {
+                                if let Some(ui) = ui_weak_clone.upgrade() {
                                     ui.set_image_list_error("".into());
                                     update_ui_images_from_slint(&ui, &images);
                                 }
@@ -192,8 +196,9 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
                         }
                         Err(e) => {
                             let error_message = e.to_string();
+                            let ui_weak_clone = ui_weak_images.clone();
                             slint::invoke_from_event_loop(move || {
-                                if let Some(ui) = ui_weak_init.upgrade() {
+                                if let Some(ui) = ui_weak_clone.upgrade() {
                                     ui.set_image_list_error(error_message.into());
                                 }
                             })
