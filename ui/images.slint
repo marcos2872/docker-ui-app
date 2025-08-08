@@ -1,24 +1,198 @@
-// Tela de imagens (placeholder)
-export component ImagesList inherits VerticalLayout {
-    padding: 16px;
+// ui/images.slint
 
-    Text {
-        text: "Images";
-        color: #ffffff;
-        font-size: 24px;
-        font-weight: 600;
+struct ImageData {
+    id: string,
+    tag: string,
+    size: string,
+    created: string,
+    in_use: bool,
+}
+
+component Button inherits Rectangle {
+    in property <string> text;
+    in property <bool> active: false;
+    in property <bool> enabled: true;
+    in property <length> size_w: 64px;
+    in property <length> size_h: 32px;
+    in property <brush> bg: #2e3030;
+    callback clicked <=> touch.clicked;
+
+    height: size_h;
+    width: size_w;
+    background: !root.enabled ? #4b5563 : root.active ? #0ea5e9 : bg;
+    border-radius: 6px;
+    border-width: root.active ? 2px : 0px;
+    border-color: #0ea5e9;
+
+    touch := TouchArea {
+        enabled: root.enabled;
     }
 
-    Rectangle {
+    Text {
+        text: root.text;
+        color: !root.enabled ? #9ca3af : #ffffff;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 14px;
+        x: 8px;
+        y: 0px;
+        width: parent.width - 16px;
+        height: parent.height;
+    }
+}
+
+component StatusIndicator inherits Rectangle {
+    in property <bool> in_use;
+
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background: in_use ? #10b981 : #ef4444;
+}
+
+component ImageItem inherits Rectangle {
+    in property <ImageData> image;
+    callback image-action(string);
+
+    background: #2e3030;
+    border-radius: 8px;
+    height: 80px;
+
+    HorizontalLayout {
+        padding: 16px;
+        spacing: 16px;
+        alignment: space-between;
+
+        HorizontalLayout {
+            spacing: 16px;
+            StatusIndicator {
+                in_use: image.in_use;
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                alignment: start;
+
+                Text {
+                    text: image.tag;
+                    color: #ffffff;
+                    font-size: 16px;
+                    font-weight: 600;
+                }
+
+                HorizontalLayout {
+                    spacing: 12px;
+
+                    Text {
+                        text: "Tamanho: " + image.size;
+                        color: #9ca3af;
+                        font-size: 14px;
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 12px;
+
+            VerticalLayout {
+                alignment: center;
+
+                Text {
+                    text: image.in_use ? "Em uso" : "Não utilizado";
+                    color: image.in_use ? #10b981 : #ef4444;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+
+                Text {
+                    width: 64px;
+                    text: image.created;
+                    color: #6b7280;
+                    font-size: 10px;
+                }
+            }
+
+            Rectangle {
+                width: 140px;
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 12px;
+
+                    Button {
+                        text: "Deletar";
+                        bg: #1A1B1B;
+                        enabled: !image.in_use;
+                        clicked => {
+                            image-action("remove");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component ImagesList inherits VerticalLayout {
+    in property <[ImageData]> images;
+
+    callback refresh-clicked();
+    callback image-action(string, string);
+
+    padding: 24px;
+    spacing: 24px;
+
+    VerticalLayout {
+        spacing: 20px;
+        height: 150px;
+        padding-top: 16px;
+        vertical-stretch: 0;
+
+        HorizontalLayout {
+            alignment: space-between;
+
+            Text {
+                text: "Imagens";
+                font-size: 24px;
+                font-weight: 600;
+            }
+
+            Button {
+                text: "Atualizar";
+                size_w: 128px;
+                clicked => {
+                    refresh-clicked();
+                }
+            }
+        }
+    }
+
+    if images.length == 0: Rectangle {
         background: #2e3030;
         border-radius: 8px;
-        height: 400px;
+        height: 100px;
 
         Text {
-            text: "Lista de imagens será implementada aqui";
+            text: "Nenhuma imagem encontrada";
             color: #9ca3af;
             horizontal-alignment: center;
             vertical-alignment: center;
+            font-size: 16px;
+        }
+    }
+
+    if images.length > 0: Flickable {
+        vertical-stretch: 1;
+
+        VerticalLayout {
+            spacing: 12px;
+
+            for image in images: ImageItem {
+                image: image;
+                image-action(action) => {
+                    image-action(image.id, action);
+                }
+            }
         }
     }
 }

@@ -21,6 +21,14 @@ struct ContainerData {
     created: string,
 }
 
+struct ImageData {
+    id: string,
+    tag: string,
+    size: string,
+    created: string,
+    in_use: bool,
+}
+
 // Botão do cabeçalho com estado ativo
 component HeaderButton inherits Rectangle {
     in property <string> text;
@@ -72,6 +80,11 @@ export component AppWindow inherits Window {
     in-out property <[ContainerData]> containers;
     in-out property <string> search-text;
     in-out property <string> status-filter: "all";
+
+    // Propriedades das imagens
+    in-out property <[ImageData]> images;
+    callback refresh-images-clicked();
+    callback image-action(string, string);
 
     // Callbacks para interação
     callback screen-changed(int);
@@ -206,7 +219,15 @@ export component AppWindow inherits Window {
                     root.container-action(name, action);
                 }
             }
-            if root.current-screen == 2: ImagesList { }
+            if root.current-screen == 2: ImagesList {
+                images: root.images;
+                refresh-clicked => {
+                    root.refresh-images-clicked();
+                }
+                image-action(id, action) => {
+                    root.image-action(id, action);
+                }
+            }
             if root.current-screen == 3: NetworksList { }
             if root.current-screen == 4: VolumesList { }
         }

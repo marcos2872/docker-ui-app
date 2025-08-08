@@ -11,11 +11,13 @@ use std::time::{Duration, Instant};
 mod chart;
 mod docker;
 mod list_containers;
+mod list_images;
 
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
 use docker::{ContainerInfo, DockerInfo, DockerManager};
-use list_containers::{ContainerUIManager, SlintContainerData, setup_container_ui_timer};
+use list_containers::{setup_container_ui_timer, ContainerUIManager, SlintContainerData};
+use list_images::{ImageUIManager, SlintImageData};
 
 // Struct Container para interface Slint
 // #[derive(Clone)]
@@ -162,6 +164,33 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
             // Configura callbacks de container
             setup_container_callbacks(ui_weak.clone(), container_ui_manager.clone());
 
+            // Configura gerenciador de imagens UI
+            let image_ui_manager = Arc::new(tokio::sync::Mutex::new(ImageUIManager::new(
+                docker_manager_shared.clone(),
+            )));
+
+            // Configura callbacks de imagem
+            setup_image_callbacks(ui_weak.clone(), image_ui_manager.clone());
+
+            // Inicialização manual das imagens
+            let ui_weak_init = ui_weak.clone();
+            let image_ui_manager_init = image_ui_manager.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                {
+                    let mut manager = image_ui_manager_init.lock().await;
+                    if let Ok(()) = manager.refresh_images().await {
+                        let images = manager.get_images();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_init.upgrade() {
+                                update_ui_images_from_slint(&ui, &images);
+                            }
+                        })
+                        .unwrap();
+                    }
+                }
+            });
+
             // Inicialização manual dos containers
             let ui_weak_init = ui_weak.clone();
             let container_ui_manager_init = container_ui_manager.clone();
@@ -303,6 +332,25 @@ fn update_containers_list(_ui: &AppWindow, _containers: &[ContainerInfo]) {
     // Funcionalidade não implementada ainda
 }
 
+// Converte imagens para formato Slint e atualiza UI
+fn update_ui_images_from_slint(ui: &AppWindow, images: &[SlintImageData]) {
+    let slint_images: Vec<_> = images
+        .iter()
+        .map(|image| ImageData {
+            id: image.id.clone(),
+            tag: image.tag.clone(),
+            size: image.size.clone(),
+            created: image.created.clone(),
+            in_use: image.in_use,
+        })
+        .collect();
+
+    let slint_model: std::rc::Rc<slint::VecModel<ImageData>> =
+        std::rc::Rc::new(slint::VecModel::from(slint_images));
+
+    ui.set_images(slint_model.into());
+}
+
 // Converte containers para formato Slint e atualiza UI
 fn update_ui_containers_from_slint(ui: &AppWindow, containers: &[SlintContainerData]) {
     let slint_containers: Vec<_> = containers
@@ -416,6 +464,76 @@ fn setup_container_callbacks(
         }
     });
 }
+
+// Configura callbacks específicos para imagens
+fn setup_image_callbacks(
+    ui_weak: Weak<AppWindow>,
+    image_ui_manager: Arc<tokio::sync::Mutex<ImageUIManager>>,
+) {
+    let ui = ui_weak.upgrade().unwrap();
+
+    // Callback para refresh de imagens
+    ui.on_refresh_images_clicked({
+        let ui_weak = ui_weak.clone();
+        let image_manager = image_ui_manager.clone();
+        move || {
+            let ui_weak_clone = ui_weak.clone();
+            let image_manager_clone = image_manager.clone();
+
+            tokio::spawn(async move {
+                let mut manager = image_manager_clone.lock().await;
+                if let Ok(()) = manager.refresh_images().await {
+                    let images = manager.get_images();
+                    slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_weak_clone.upgrade() {
+                            update_ui_images_from_slint(&ui, &images);
+                        }
+                    })
+                    .unwrap();
+                }
+            });
+        }
+    });
+
+    // Callback para ações em imagens
+    ui.on_image_action({
+        let ui_weak = ui_weak.clone();
+        let image_manager = image_ui_manager.clone();
+        move |image_id, action| {
+            let ui_weak_clone = ui_weak.clone();
+            let image_manager_clone = image_manager.clone();
+            let image_id_str = image_id.to_string();
+            let action_str = action.to_string();
+
+            tokio::spawn(async move {
+                let manager = image_manager_clone.lock().await;
+
+                // Executa a ação na imagem
+                if let Err(e) = manager
+                    .execute_image_action(&image_id_str, &action_str)
+                    .await
+                {
+                    eprintln!("Image action failed: {}", e);
+                    return;
+                }
+
+                // Atualiza a lista imediatamente após a ação
+                drop(manager); // Libera o lock
+                let mut manager = image_manager_clone.lock().await;
+                if let Ok(()) = manager.refresh_images().await {
+                    let images = manager.get_images();
+                    slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_weak_clone.upgrade() {
+                            update_ui_images_from_slint(&ui, &images);
+                        }
+                    })
+                    .unwrap();
+                }
+            });
+        }
+    });
+}
+
 
 // Configura callbacks da interface
 fn setup_callbacks(ui_weak: Weak<AppWindow>, _app_state: AppState) {
