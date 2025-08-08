@@ -84,6 +84,9 @@ export component AppWindow inherits Window {
     // Propriedades das imagens
     in-out property <[ImageData]> images;
     in-out property <string> image-list-error;
+    in-out property <string> success-message;
+    in-out property <string> error-in-use-message;
+    in-out property <string> error-other-message;
     callback refresh-images-clicked();
     callback image-action(string, string);
 
@@ -223,6 +226,9 @@ export component AppWindow inherits Window {
             if root.current-screen == 2: ImagesList {
                 images: root.images;
                 image-list-error: root.image-list-error;
+                success_message: root.success-message;
+                error_in_use_message: root.error-in-use-message;
+                error_other_message: root.error-other-message;
                 refresh-clicked => {
                     root.refresh-images-clicked();
                 }

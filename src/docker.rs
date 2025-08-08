@@ -1,9 +1,9 @@
 // Imports para gerenciamento do Docker
 use anyhow::{Context, Result};
 use bollard::{
+    Docker,
     models::{ContainerStatsResponse, ImageSummary},
     query_parameters::{ListContainersOptions, ListImagesOptions, StatsOptions},
-    Docker,
 };
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
@@ -284,19 +284,10 @@ impl DockerManager {
             .await
             .context("Falha ao listar imagens")?;
 
-        let container_infos = self.list_containers().await?;
-        let used_images: std::collections::HashSet<String> = container_infos
-            .into_iter()
-            .map(|c| c.image)
-            .collect();
-
         let image_infos: Vec<ImageInfo> = images
             .into_iter()
             .map(|image: ImageSummary| {
-                let in_use = image
-                    .repo_tags
-                    .iter()
-                    .any(|tag| used_images.contains(tag));
+                let in_use = image.containers > 2;
                 ImageInfo {
                     id: image.id.clone(),
                     tags: image.repo_tags.clone(),
@@ -319,9 +310,11 @@ impl DockerManager {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
-            if stderr.contains("conflict") && stderr.contains("in use") {
+            if stderr.contains("conflict")
+                && stderr.contains("image is being used by running container")
+            {
                 return Err(anyhow::anyhow!(
-                    "IN_USE:A imagem está em uso por um contêiner em execução."
+                    "IN_USE:A imagem está em uso por um contêiner."
                 ));
             } else {
                 return Err(anyhow::anyhow!(

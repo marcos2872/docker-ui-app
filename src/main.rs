@@ -1,10 +1,5 @@
 // Inclui módulos gerados pelo Slint
-slint::include_modules! {
-    // Adicione os novos atributos aqui
-    ImageData,
-    ContainerData,
-    AppWindow,
-}
+slint::include_modules!();
 
 // Imports necessários para timer, interface e threading
 use slint::{Timer, TimerMode, ToSharedString, Weak};
@@ -542,33 +537,67 @@ fn setup_image_callbacks(
                     .execute_image_action(&image_id_str, &action_str)
                     .await;
 
-                if let Some(ui) = ui_weak_clone.upgrade() {
-                    slint::invoke_from_event_loop(move || {
-                        // Limpa mensagens anteriores
-                        ui.set_success_message("".into());
-                        ui.set_error_in_use_message("".into());
-                        ui.set_error_other_message("".into());
-
-                        match result {
-                            Ok(success_message) => {
+                let ui_weak_result = ui_weak_clone.clone();
+                match result {
+                    Ok(success_message) => {
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_result.upgrade() {
+                                ui.set_success_message("".into());
+                                ui.set_error_in_use_message("".into());
+                                ui.set_error_other_message("".into());
                                 ui.set_success_message(success_message.into());
                             }
-                            Err(error_message) => {
-                                if error_message.starts_with("IN_USE:") {
-                                    let msg = error_message
+                        })
+                        .unwrap();
+                        
+                        // Timer para limpar mensagem de sucesso após 3 segundos
+                        let ui_weak_timer = ui_weak_clone.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_timer.upgrade() {
+                                    ui.set_success_message("".into());
+                                }
+                            })
+                            .unwrap();
+                        });
+                    }
+                    Err(error_message) => {
+                        let error_message_clone = error_message.clone();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_result.upgrade() {
+                                ui.set_success_message("".into());
+                                ui.set_error_in_use_message("".into());
+                                ui.set_error_other_message("".into());
+                                
+                                if error_message_clone.starts_with("IN_USE:") {
+                                    let msg = error_message_clone
                                         .strip_prefix("IN_USE:")
-                                        .unwrap_or(&error_message);
+                                        .unwrap_or(&error_message_clone);
                                     ui.set_error_in_use_message(msg.into());
                                 } else {
-                                    let msg = error_message
+                                    let msg = error_message_clone
                                         .strip_prefix("OTHER_ERROR:")
-                                        .unwrap_or(&error_message);
+                                        .unwrap_or(&error_message_clone);
                                     ui.set_error_other_message(msg.into());
                                 }
                             }
-                        }
-                    })
-                    .unwrap();
+                        })
+                        .unwrap();
+                        
+                        // Timer para limpar mensagens de erro após 3 segundos
+                        let ui_weak_timer = ui_weak_clone.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_timer.upgrade() {
+                                    ui.set_error_in_use_message("".into());
+                                    ui.set_error_other_message("".into());
+                                }
+                            })
+                            .unwrap();
+                        });
+                    }
                 }
 
                 // Atualiza a lista imediatamente após a ação
@@ -576,12 +605,13 @@ fn setup_image_callbacks(
                 let mut manager = image_manager_clone.lock().await;
                 if let Ok(()) = manager.refresh_images().await {
                     let images = manager.get_images();
-                    if let Some(ui) = ui_weak_clone.upgrade() {
-                        slint::invoke_from_event_loop(move || {
+                    let ui_weak_final = ui_weak_clone.clone();
+                    slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_weak_final.upgrade() {
                             update_ui_images_from_slint(&ui, &images);
-                        })
-                        .unwrap();
-                    }
+                        }
+                    })
+                    .unwrap();
                 }
             });
         }

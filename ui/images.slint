@@ -41,6 +41,25 @@ component Button inherits Rectangle {
     }
 }
 
+component ErrorMessage inherits Rectangle {
+    in property <string> text;
+    in property <brush> bg;
+    in property <brush> text-color;
+
+    background: bg;
+    border-radius: 8px;
+    padding-left: 16px;
+    padding-right: 16px;
+
+    Text {
+        text: text;
+        color: text-color;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 14px;
+    }
+}
+
 component StatusIndicator inherits Rectangle {
     in property <bool> in_use;
 
@@ -162,69 +181,36 @@ export component ImagesList inherits VerticalLayout {
                 font-weight: 600;
             }
 
-            Button {
-                text: "Atualizar";
-                size_w: 128px;
-                clicked => {
-                    refresh-clicked();
-                }
+            // Button {
+            //     text: "Atualizar";
+            //     size_w: 128px;
+            //     clicked => {
+            //         refresh-clicked();
+            //     }
+            // }
+            if root.image-list-error != "": ErrorMessage {
+                bg: #ef444420;
+                text: "Erro: " + root.image-list-error;
+                text-color: #ef4444;
             }
-        }
-    }
 
-    if root.image-list-error != "": Rectangle {
-        background: #ef444420;
-        border-radius: 8px;
-        height: 40px;
+            if root.success_message != "": ErrorMessage {
+                bg: #10b98120;
+                text: root.success_message;
+                text-color: #10b981;
+            }
 
-        Text {
-            text: "Erro: " + root.image-list-error;
-            color: #ef4444;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-            font-size: 14px;
-        }
-    }
+            if root.error_in_use_message != "": ErrorMessage {
+                bg: #ef444420;
+                text: root.error_in_use_message;
+                text-color: #ef4444;
+            }
 
-    if root.success_message != "" : Rectangle {
-        background: #10b98120;
-        border-radius: 8px;
-        height: 40px;
-
-        Text {
-            text: root.success_message;
-            color: #10b981;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-            font-size: 14px;
-        }
-    }
-
-    if root.error_in_use_message != "" : Rectangle {
-        background: #ef444420;
-        border-radius: 8px;
-        height: 40px;
-
-        Text {
-            text: root.error_in_use_message;
-            color: #ef4444;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-            font-size: 14px;
-        }
-    }
-
-    if root.error_other_message != "" : Rectangle {
-        background: #f9731620;
-        border-radius: 8px;
-        height: 40px;
-
-        Text {
-            text: root.error_other_message;
-            color: #f97316;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-            font-size: 14px;
+            if root.error_other_message != "": ErrorMessage {
+                bg: #f9731620;
+                text: root.error_other_message;
+                text-color: #f97316;
+            }
         }
     }
 
