@@ -179,14 +179,26 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 {
                     let mut manager = image_ui_manager_init.lock().await;
-                    if let Ok(()) = manager.refresh_images().await {
-                        let images = manager.get_images();
-                        slint::invoke_from_event_loop(move || {
-                            if let Some(ui) = ui_weak_init.upgrade() {
-                                update_ui_images_from_slint(&ui, &images);
-                            }
-                        })
-                        .unwrap();
+                    match manager.refresh_images().await {
+                        Ok(()) => {
+                            let images = manager.get_images();
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_init.upgrade() {
+                                    ui.set_image_list_error("".into());
+                                    update_ui_images_from_slint(&ui, &images);
+                                }
+                            })
+                            .unwrap();
+                        }
+                        Err(e) => {
+                            let error_message = e.to_string();
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_init.upgrade() {
+                                    ui.set_image_list_error(error_message.into());
+                                }
+                            })
+                            .unwrap();
+                        }
                     }
                 }
             });
@@ -482,14 +494,26 @@ fn setup_image_callbacks(
 
             tokio::spawn(async move {
                 let mut manager = image_manager_clone.lock().await;
-                if let Ok(()) = manager.refresh_images().await {
-                    let images = manager.get_images();
-                    slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak_clone.upgrade() {
-                            update_ui_images_from_slint(&ui, &images);
-                        }
-                    })
-                    .unwrap();
+                match manager.refresh_images().await {
+                    Ok(()) => {
+                        let images = manager.get_images();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_clone.upgrade() {
+                                ui.set_image_list_error("".into());
+                                update_ui_images_from_slint(&ui, &images);
+                            }
+                        })
+                        .unwrap();
+                    }
+                    Err(e) => {
+                        let error_message = e.to_string();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_clone.upgrade() {
+                                ui.set_image_list_error(error_message.into());
+                            }
+                        })
+                        .unwrap();
+                    }
                 }
             });
         }

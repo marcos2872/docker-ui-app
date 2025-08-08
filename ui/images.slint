@@ -135,6 +135,7 @@ component ImageItem inherits Rectangle {
 
 export component ImagesList inherits VerticalLayout {
     in property <[ImageData]> images;
+    in property <string> image-list-error;
 
     callback refresh-clicked();
     callback image-action(string, string);
@@ -164,6 +165,20 @@ export component ImagesList inherits VerticalLayout {
                     refresh-clicked();
                 }
             }
+        }
+    }
+
+    if root.image-list-error != "": Rectangle {
+        background: #ef444420;
+        border-radius: 8px;
+        height: 40px;
+
+        Text {
+            text: "Erro: " + root.image-list-error;
+            color: #ef4444;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: 14px;
         }
     }
 
