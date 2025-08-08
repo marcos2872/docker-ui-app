@@ -374,6 +374,7 @@ impl DockerManager {
             .into_iter()
             .filter_map(|network| {
                 let network_name = network.name.as_deref().unwrap_or("");
+                let id = network.id.unwrap_or_default();
 
                 // Filtra networks de sistema (bridge, host, none)
                 let is_system = matches!(network_name, "bridge" | "host" | "none");
@@ -382,16 +383,16 @@ impl DockerManager {
                     return None; // Pula networks de sistema
                 }
 
-                let containers_count = network
-                    .containers
-                    .as_ref()
-                    .map(|c| c.len() as i32)
-                    .unwrap_or(0);
+                let mut containers_count = 0;
 
-                // println!("{:?}", network.attachable);
+                for network_id in &network_ids {
+                    if network_id == &id {
+                        containers_count += 1;
+                    }
+                }
 
                 Some(NetworkInfo {
-                    id: network.id.unwrap_or_default(),
+                    id,
                     name: network_name.to_string(),
                     driver: network.driver.unwrap_or_default(),
                     scope: network.scope.unwrap_or_default(),
