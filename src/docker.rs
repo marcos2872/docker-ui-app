@@ -318,6 +318,24 @@ impl DockerManager {
         Ok(())
     }
 
+    // deleta um container
+    pub async fn remove_container(&self, container_name: &str) -> Result<()> {
+        let output = Command::new("docker")
+            .args(&["rm", container_name])
+            .output()
+            .context("Failed to execute docker unpause command")?;
+
+        if !output.status.success() {
+            return Err(anyhow::anyhow!(
+                "Failed to unpause container {}: {}",
+                container_name,
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        Ok(())
+    }
+
     // Lista apenas containers em execução
     pub async fn list_running_containers(&self) -> Result<Vec<ContainerInfo>> {
         let containers = self

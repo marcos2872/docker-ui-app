@@ -60,7 +60,6 @@ component ContainerItem inherits Rectangle {
 
         HorizontalLayout {
             spacing: 16px;
-
             StatusIndicator {
                 status: container.status;
             }
@@ -80,7 +79,10 @@ component ContainerItem inherits Rectangle {
                     spacing: 12px;
 
                     Text {
-                        text: container.image;
+                        max-width: 180px;
+                        min-width: 180px;
+                        overflow: elide;
+                        text: "imagem: " + container.image;
                         color: #9ca3af;
                         font-size: 14px;
                     }
@@ -116,7 +118,7 @@ component ContainerItem inherits Rectangle {
             }
 
             Rectangle {
-                width: container.status == "running" || container.status == "paused" ? 140px : 80px;
+                width: 140px;
 
                 if container.status == "running": VerticalLayout {
                     alignment: center;
@@ -141,11 +143,26 @@ component ContainerItem inherits Rectangle {
                     }
                 }
 
-                if container.status == "exited": Button {
-                    text: "Iniciar";
-                    bg: #1A1B1B;
-                    clicked => {
-                        container-action("start");
+                if container.status == "exited": VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        Button {
+                            text: "Iniciar";
+                            bg: #1A1B1B;
+                            clicked => {
+                                container-action("start");
+                            }
+                        }
+
+                        Button {
+                            text: "Deletar";
+                            bg: #1A1B1B;
+                            clicked => {
+                                container-action("remove");
+                            }
+                        }
                     }
                 }
 

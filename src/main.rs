@@ -147,7 +147,7 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
             )));
 
             let ui_weak_container = ui_weak.clone();
-            let _container_timer = setup_container_ui_timer(
+            let container_timer = setup_container_ui_timer(
                 container_ui_manager.clone(),
                 Arc::new(move |containers| {
                     if let Some(ui) = ui_weak_container.upgrade() {
@@ -155,6 +155,9 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
                     }
                 }),
             );
+
+            // Mantém o timer vivo armazenando-o no contexto
+            std::mem::forget(container_timer);
 
             // Configura callbacks de container
             setup_container_callbacks(ui_weak.clone(), container_ui_manager.clone());

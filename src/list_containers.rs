@@ -18,13 +18,14 @@ impl From<&ContainerInfo> for SlintContainerData {
         let ports_str = if container.ports.is_empty() {
             "Nenhuma".to_string()
         } else {
-            container.ports
+            container
+                .ports
                 .iter()
                 .map(|p| p.to_string())
                 .collect::<Vec<_>>()
                 .join(", ")
         };
-        
+
         Self {
             name: container.name.clone().into(),
             image: container.image.clone().into(),
@@ -89,7 +90,7 @@ impl ContainerUIManager {
                 let matches_status = match self.status_filter.as_str() {
                     "all" => true,
                     "running" => container_status == "running",
-                    "exited" => container_status == "exited", 
+                    "exited" => container_status == "exited",
                     "paused" => container_status == "paused",
                     _ => true,
                 };
@@ -135,6 +136,10 @@ impl ContainerUIManager {
                 .unpause_container(container_name)
                 .await
                 .map_err(|e| format!("Failed to unpause container: {}", e).into()),
+            "remove" => docker_manager
+                .remove_container(container_name)
+                .await
+                .map_err(|e| format!("Failed to remove container: {}", e).into()),
             _ => Err(format!("Unknown action: {}", action).into()),
         }
     }
@@ -162,17 +167,17 @@ fn parse_container_status(state: &str, status: &str) -> slint::SharedString {
 fn format_creation_time(created: i64) -> slint::SharedString {
     if created > 0 {
         // Convert Unix timestamp to readable format
-        use std::time::{UNIX_EPOCH, Duration, SystemTime};
-        
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
         let timestamp = UNIX_EPOCH + Duration::from_secs(created as u64);
         let now = SystemTime::now();
-        
+
         match now.duration_since(timestamp) {
             Ok(duration) => {
                 let days = duration.as_secs() / (24 * 3600);
                 let hours = (duration.as_secs() % (24 * 3600)) / 3600;
                 let minutes = (duration.as_secs() % 3600) / 60;
-                
+
                 if days > 0 {
                     format!("há {} dias", days).into()
                 } else if hours > 0 {
