@@ -136,6 +136,9 @@ component ImageItem inherits Rectangle {
 export component ImagesList inherits VerticalLayout {
     in property <[ImageData]> images;
     in property <string> image-list-error;
+    in property <string> success_message: "";
+    in property <string> error_in_use_message: "";
+    in property <string> error_other_message: "";
 
     callback refresh-clicked();
     callback image-action(string, string);
@@ -177,6 +180,48 @@ export component ImagesList inherits VerticalLayout {
         Text {
             text: "Erro: " + root.image-list-error;
             color: #ef4444;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: 14px;
+        }
+    }
+
+    if root.success_message != "" : Rectangle {
+        background: #10b98120;
+        border-radius: 8px;
+        height: 40px;
+
+        Text {
+            text: root.success_message;
+            color: #10b981;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: 14px;
+        }
+    }
+
+    if root.error_in_use_message != "" : Rectangle {
+        background: #ef444420;
+        border-radius: 8px;
+        height: 40px;
+
+        Text {
+            text: root.error_in_use_message;
+            color: #ef4444;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: 14px;
+        }
+    }
+
+    if root.error_other_message != "" : Rectangle {
+        background: #f9731620;
+        border-radius: 8px;
+        height: 40px;
+
+        Text {
+            text: root.error_other_message;
+            color: #f97316;
             horizontal-alignment: center;
             vertical-alignment: center;
             font-size: 14px;

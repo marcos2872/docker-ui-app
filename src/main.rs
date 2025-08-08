@@ -1,5 +1,10 @@
 // Inclui módulos gerados pelo Slint
-slint::include_modules!();
+slint::include_modules! {
+    // Adicione os novos atributos aqui
+    ImageData,
+    ContainerData,
+    AppWindow,
+}
 
 // Imports necessários para timer, interface e threading
 use slint::{Timer, TimerMode, ToSharedString, Weak};
@@ -533,12 +538,37 @@ fn setup_image_callbacks(
                 let manager = image_manager_clone.lock().await;
 
                 // Executa a ação na imagem
-                if let Err(e) = manager
+                let result = manager
                     .execute_image_action(&image_id_str, &action_str)
-                    .await
-                {
-                    eprintln!("Image action failed: {}", e);
-                    return;
+                    .await;
+
+                if let Some(ui) = ui_weak_clone.upgrade() {
+                    slint::invoke_from_event_loop(move || {
+                        // Limpa mensagens anteriores
+                        ui.set_success_message("".into());
+                        ui.set_error_in_use_message("".into());
+                        ui.set_error_other_message("".into());
+
+                        match result {
+                            Ok(success_message) => {
+                                ui.set_success_message(success_message.into());
+                            }
+                            Err(error_message) => {
+                                if error_message.starts_with("IN_USE:") {
+                                    let msg = error_message
+                                        .strip_prefix("IN_USE:")
+                                        .unwrap_or(&error_message);
+                                    ui.set_error_in_use_message(msg.into());
+                                } else {
+                                    let msg = error_message
+                                        .strip_prefix("OTHER_ERROR:")
+                                        .unwrap_or(&error_message);
+                                    ui.set_error_other_message(msg.into());
+                                }
+                            }
+                        }
+                    })
+                    .unwrap();
                 }
 
                 // Atualiza a lista imediatamente após a ação
@@ -546,12 +576,12 @@ fn setup_image_callbacks(
                 let mut manager = image_manager_clone.lock().await;
                 if let Ok(()) = manager.refresh_images().await {
                     let images = manager.get_images();
-                    slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak_clone.upgrade() {
+                    if let Some(ui) = ui_weak_clone.upgrade() {
+                        slint::invoke_from_event_loop(move || {
                             update_ui_images_from_slint(&ui, &images);
-                        }
-                    })
-                    .unwrap();
+                        })
+                        .unwrap();
+                    }
                 }
             });
         }

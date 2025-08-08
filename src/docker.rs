@@ -318,11 +318,16 @@ impl DockerManager {
             .context("Failed to execute docker rmi command")?;
 
         if !output.status.success() {
-            return Err(anyhow::anyhow!(
-                "Failed to remove image {}: {}",
-                image_id,
-                String::from_utf8_lossy(&output.stderr)
-            ));
+            let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+            if stderr.contains("conflict") && stderr.contains("in use") {
+                return Err(anyhow::anyhow!(
+                    "IN_USE:A imagem está em uso por um contêiner em execução."
+                ));
+            } else {
+                return Err(anyhow::anyhow!(
+                    "OTHER_ERROR:Não foi possível remover a imagem. Tente forçar a remoção."
+                ));
+            }
         }
 
         Ok(())

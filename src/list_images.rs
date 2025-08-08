@@ -59,15 +59,15 @@ impl ImageUIManager {
         &self,
         image_id: &str,
         action: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<String, String> {
         let docker_manager = self.docker_manager.lock().await;
 
         match action {
-            "remove" => docker_manager
-                .remove_image(image_id)
-                .await
-                .map_err(|e| format!("Failed to remove image: {}", e).into()),
-            _ => Err(format!("Unknown action: {}", action).into()),
+            "remove" => match docker_manager.remove_image(image_id).await {
+                Ok(_) => Ok("Imagem removida com sucesso.".to_string()),
+                Err(e) => Err(e.to_string()),
+            },
+            _ => Err(format!("Unknown action: {}", action)),
         }
     }
 }
