@@ -3,12 +3,14 @@ use anyhow::{Context, Result};
 use bollard::{
     Docker,
     models::{ContainerStatsResponse, ImageSummary},
-    query_parameters::{ListContainersOptions, ListImagesOptions, StatsOptions},
+    query_parameters::{
+        ListContainersOptions, ListImagesOptions, ListNetworksOptions, StatsOptions,
+    },
 };
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt,
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -33,6 +35,17 @@ pub struct ImageInfo {
     pub created: i64,
     pub size: i64,
     pub in_use: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NetworkInfo {
+    pub id: String,
+    pub name: String,
+    pub driver: String,
+    pub scope: String,
+    pub created: String,
+    pub containers_count: i32,
+    pub is_system: bool,
 }
 
 // Status possíveis do Docker
@@ -319,6 +332,98 @@ impl DockerManager {
             } else {
                 return Err(anyhow::anyhow!(
                     "OTHER_ERROR:Não foi possível remover a imagem. Tente forçar a remoção."
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    // Lista todas as networks
+    pub async fn list_networks(&self) -> Result<Vec<NetworkInfo>> {
+        let networks = self
+            .docker
+            .list_networks(Some(ListNetworksOptions {
+                ..Default::default()
+            }))
+            .await
+            .context("Falha ao listar networks")?;
+
+        let containers = self
+            .docker
+            .list_containers(Some(ListContainersOptions {
+                all: true,
+                ..Default::default()
+            }))
+            .await
+            .context("Falha ao listar containers")?;
+
+        let network_ids: Vec<String> = containers
+            .into_iter()
+            .flat_map(|container| {
+                container
+                    .network_settings
+                    .and_then(|settings| settings.networks)
+                    .unwrap_or_default()
+                    .into_values()
+                    .filter_map(|endpoint| endpoint.network_id)
+            })
+            .collect();
+
+        let network_infos: Vec<NetworkInfo> = networks
+            .into_iter()
+            .filter_map(|network| {
+                let network_name = network.name.as_deref().unwrap_or("");
+
+                // Filtra networks de sistema (bridge, host, none)
+                let is_system = matches!(network_name, "bridge" | "host" | "none");
+
+                if is_system {
+                    return None; // Pula networks de sistema
+                }
+
+                let containers_count = network
+                    .containers
+                    .as_ref()
+                    .map(|c| c.len() as i32)
+                    .unwrap_or(0);
+
+                // println!("{:?}", network.attachable);
+
+                Some(NetworkInfo {
+                    id: network.id.unwrap_or_default(),
+                    name: network_name.to_string(),
+                    driver: network.driver.unwrap_or_default(),
+                    scope: network.scope.unwrap_or_default(),
+                    created: network.created.unwrap_or_default(),
+                    containers_count,
+                    is_system: false, // Todas as networks listadas são de usuário
+                })
+            })
+            .collect();
+
+        Ok(network_infos)
+    }
+
+    // Remove uma network
+    pub async fn remove_network(&self, network_id: &str) -> Result<()> {
+        let output = Command::new("docker")
+            .args(&["network", "rm", network_id])
+            .output()
+            .context("Failed to execute docker network rm command")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+            if stderr.contains("has active endpoints") || stderr.contains("endpoint") {
+                return Err(anyhow::anyhow!(
+                    "IN_USE:A network possui containers conectados."
+                ));
+            } else if stderr.contains("not found") || stderr.contains("no such network") {
+                return Err(anyhow::anyhow!("OTHER_ERROR:Network não encontrada."));
+            } else {
+                return Err(anyhow::anyhow!(
+                    "OTHER_ERROR:Não foi possível remover a network: {}",
+                    String::from_utf8_lossy(&output.stderr)
                 ));
             }
         }

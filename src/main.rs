@@ -12,12 +12,14 @@ mod chart;
 mod docker;
 mod list_containers;
 mod list_images;
+mod list_networks;
 
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
 use docker::{ContainerInfo, DockerInfo, DockerManager};
 use list_containers::{setup_container_ui_timer, ContainerUIManager, SlintContainerData};
 use list_images::{ImageUIManager, SlintImageData};
+use list_networks::{NetworkUIManager, SlintNetworkData};
 
 // Struct Container para interface Slint
 // #[derive(Clone)]
@@ -208,6 +210,50 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
                 }
             });
 
+            // Configura gerenciador de networks UI
+            let network_ui_manager = Arc::new(tokio::sync::Mutex::new(NetworkUIManager::new(
+                docker_manager_shared.clone(),
+            )));
+
+            // Configura callbacks de network
+            setup_network_callbacks(ui_weak.clone(), network_ui_manager.clone());
+
+            // Configura timer para atualizar networks a cada segundo
+            let ui_weak_networks = ui_weak.clone();
+            let network_ui_manager_timer = network_ui_manager.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+                
+                loop {
+                    interval.tick().await;
+                    
+                    let mut manager = network_ui_manager_timer.lock().await;
+                    match manager.refresh_networks().await {
+                        Ok(()) => {
+                            let networks = manager.get_networks();
+                            let ui_weak_clone = ui_weak_networks.clone();
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_clone.upgrade() {
+                                    ui.set_network_list_error("".into());
+                                    update_ui_networks_from_slint(&ui, &networks);
+                                }
+                            })
+                            .unwrap();
+                        }
+                        Err(e) => {
+                            let error_message = e.to_string();
+                            let ui_weak_clone = ui_weak_networks.clone();
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_clone.upgrade() {
+                                    ui.set_network_list_error(error_message.into());
+                                }
+                            })
+                            .unwrap();
+                        }
+                    }
+                }
+            });
+
             // Inicialização manual dos containers
             let ui_weak_init = ui_weak.clone();
             let container_ui_manager_init = container_ui_manager.clone();
@@ -366,6 +412,27 @@ fn update_ui_images_from_slint(ui: &AppWindow, images: &[SlintImageData]) {
         std::rc::Rc::new(slint::VecModel::from(slint_images));
 
     ui.set_images(slint_model.into());
+}
+
+// Converte networks para formato Slint e atualiza UI
+fn update_ui_networks_from_slint(ui: &AppWindow, networks: &[SlintNetworkData]) {
+    let slint_networks: Vec<_> = networks
+        .iter()
+        .map(|network| NetworkData {
+            id: network.id.clone(),
+            name: network.name.clone(),
+            driver: network.driver.clone(),
+            scope: network.scope.clone(),
+            created: network.created.clone(),
+            containers_count: network.containers_count,
+            is_system: network.is_system,
+        })
+        .collect();
+
+    let slint_model: std::rc::Rc<slint::VecModel<NetworkData>> =
+        std::rc::Rc::new(slint::VecModel::from(slint_networks));
+
+    ui.set_networks(slint_model.into());
 }
 
 // Converte containers para formato Slint e atualiza UI
@@ -614,6 +681,147 @@ fn setup_image_callbacks(
                     slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak_final.upgrade() {
                             update_ui_images_from_slint(&ui, &images);
+                        }
+                    })
+                    .unwrap();
+                }
+            });
+        }
+    });
+}
+
+// Configura callbacks específicos para networks
+fn setup_network_callbacks(
+    ui_weak: Weak<AppWindow>,
+    network_ui_manager: Arc<tokio::sync::Mutex<NetworkUIManager>>,
+) {
+    let ui = ui_weak.upgrade().unwrap();
+
+    // Callback para refresh de networks
+    ui.on_refresh_networks_clicked({
+        let ui_weak = ui_weak.clone();
+        let network_manager = network_ui_manager.clone();
+        move || {
+            let ui_weak_clone = ui_weak.clone();
+            let network_manager_clone = network_manager.clone();
+
+            tokio::spawn(async move {
+                let mut manager = network_manager_clone.lock().await;
+                match manager.refresh_networks().await {
+                    Ok(()) => {
+                        let networks = manager.get_networks();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_clone.upgrade() {
+                                ui.set_network_list_error("".into());
+                                update_ui_networks_from_slint(&ui, &networks);
+                            }
+                        })
+                        .unwrap();
+                    }
+                    Err(e) => {
+                        let error_message = e.to_string();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_clone.upgrade() {
+                                ui.set_network_list_error(error_message.into());
+                            }
+                        })
+                        .unwrap();
+                    }
+                }
+            });
+        }
+    });
+
+    // Callback para ações em networks
+    ui.on_network_action({
+        let ui_weak = ui_weak.clone();
+        let network_manager = network_ui_manager.clone();
+        move |network_id, action| {
+            let ui_weak_clone = ui_weak.clone();
+            let network_manager_clone = network_manager.clone();
+            let network_id_str = network_id.to_string();
+            let action_str = action.to_string();
+
+            tokio::spawn(async move {
+                let manager = network_manager_clone.lock().await;
+
+                // Executa a ação na network
+                let result = manager
+                    .execute_network_action(&network_id_str, &action_str)
+                    .await;
+
+                let ui_weak_result = ui_weak_clone.clone();
+                match result {
+                    Ok(success_message) => {
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_result.upgrade() {
+                                ui.set_network_success_message("".into());
+                                ui.set_network_error_in_use_message("".into());
+                                ui.set_network_error_other_message("".into());
+                                ui.set_network_success_message(success_message.into());
+                            }
+                        })
+                        .unwrap();
+                        
+                        // Timer para limpar mensagem de sucesso após 3 segundos
+                        let ui_weak_timer = ui_weak_clone.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_timer.upgrade() {
+                                    ui.set_network_success_message("".into());
+                                }
+                            })
+                            .unwrap();
+                        });
+                    }
+                    Err(error_message) => {
+                        let error_message_clone = error_message.clone();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_result.upgrade() {
+                                ui.set_network_success_message("".into());
+                                ui.set_network_error_in_use_message("".into());
+                                ui.set_network_error_other_message("".into());
+                                
+                                if error_message_clone.starts_with("IN_USE:") {
+                                    let msg = error_message_clone
+                                        .strip_prefix("IN_USE:")
+                                        .unwrap_or(&error_message_clone);
+                                    ui.set_network_error_in_use_message(msg.into());
+                                } else {
+                                    let msg = error_message_clone
+                                        .strip_prefix("OTHER_ERROR:")
+                                        .unwrap_or(&error_message_clone);
+                                    ui.set_network_error_other_message(msg.into());
+                                }
+                            }
+                        })
+                        .unwrap();
+                        
+                        // Timer para limpar mensagens de erro após 3 segundos
+                        let ui_weak_timer = ui_weak_clone.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_timer.upgrade() {
+                                    ui.set_network_error_in_use_message("".into());
+                                    ui.set_network_error_other_message("".into());
+                                }
+                            })
+                            .unwrap();
+                        });
+                    }
+                }
+
+                // Atualiza a lista imediatamente após a ação
+                drop(manager); // Libera o lock
+                let mut manager = network_manager_clone.lock().await;
+                if let Ok(()) = manager.refresh_networks().await {
+                    let networks = manager.get_networks();
+                    let ui_weak_final = ui_weak_clone.clone();
+                    slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_weak_final.upgrade() {
+                            update_ui_networks_from_slint(&ui, &networks);
                         }
                     })
                     .unwrap();
