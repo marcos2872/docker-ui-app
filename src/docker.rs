@@ -22,6 +22,8 @@ pub struct ContainerInfo {
     pub image: String,
     pub state: String,
     pub status: String,
+    pub ports: Vec<i32>,
+    pub created: i64,
 }
 
 // Status possíveis do Docker
@@ -231,10 +233,89 @@ impl DockerManager {
                     .state
                     .map_or("unknown".to_string(), |s| s.to_string()),
                 status: container.status.unwrap_or_default(),
+                ports: container
+                    .ports
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|port| port.public_port.map(|p| p as i32))
+                    .collect(),
+                created: container.created.unwrap_or_default(),
             })
             .collect();
 
         Ok(container_infos)
+    }
+
+    // Inicia um container
+    pub async fn start_container(&self, container_name: &str) -> Result<()> {
+        let output = Command::new("docker")
+            .args(&["start", container_name])
+            .output()
+            .context("Failed to execute docker start command")?;
+
+        if !output.status.success() {
+            return Err(anyhow::anyhow!(
+                "Failed to start container {}: {}",
+                container_name,
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        Ok(())
+    }
+
+    // Para um container
+    pub async fn stop_container(&self, container_name: &str) -> Result<()> {
+        let output = Command::new("docker")
+            .args(&["stop", container_name])
+            .output()
+            .context("Failed to execute docker stop command")?;
+
+        if !output.status.success() {
+            return Err(anyhow::anyhow!(
+                "Failed to stop container {}: {}",
+                container_name,
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        Ok(())
+    }
+
+    // Pausa um container
+    pub async fn pause_container(&self, container_name: &str) -> Result<()> {
+        let output = Command::new("docker")
+            .args(&["pause", container_name])
+            .output()
+            .context("Failed to execute docker pause command")?;
+
+        if !output.status.success() {
+            return Err(anyhow::anyhow!(
+                "Failed to pause container {}: {}",
+                container_name,
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        Ok(())
+    }
+
+    // Despausa um container
+    pub async fn unpause_container(&self, container_name: &str) -> Result<()> {
+        let output = Command::new("docker")
+            .args(&["unpause", container_name])
+            .output()
+            .context("Failed to execute docker unpause command")?;
+
+        if !output.status.success() {
+            return Err(anyhow::anyhow!(
+                "Failed to unpause container {}: {}",
+                container_name,
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+
+        Ok(())
     }
 
     // Lista apenas containers em execução
@@ -262,8 +343,14 @@ impl DockerManager {
                 state: container
                     .state
                     .map_or("unknown".to_string(), |s| s.to_string()),
-
                 status: container.status.unwrap_or_default(),
+                ports: container
+                    .ports
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|port| port.public_port.map(|p| p as i32))
+                    .collect(),
+                created: container.created.unwrap_or_default(),
             })
             .collect();
 

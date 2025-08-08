@@ -1,30 +1,190 @@
-// Tela de containers (placeholder)
-
+struct ContainerData {
+    name: string,
+    image: string,
+    status: string,
+    ports: string,
+    created: string,
+}
 
 component Button inherits Rectangle {
     in property <string> text;
     in property <bool> active: false;
+    in property <length> size_w: 64px;
+    in property <length> size_h: 32px;
+    in property <brush> bg: #2e3030;
     callback clicked <=> touch.clicked;
 
-    height: 32px;
-    background: #2e3030;
+    height: size_h;
+    width: size_w;
+    background: root.active ? #0ea5e9 : bg;
     border-radius: 6px;
+    border-width: root.active ? 2px : 0px;
+    border-color: #0ea5e9;
 
     touch := TouchArea { }
 
-    HorizontalLayout {
-        padding: 8px;
+    Text {
+        text: root.text;
+        color: #ffffff;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 14px;
+        x: 8px;
+        y: 0px;
+        width: parent.width - 16px;
+        height: parent.height;
+    }
+}
 
-        Text {
-            text: root.text;
-            color: #ffffff;
-            horizontal-alignment: center;
-            vertical-alignment: center;
+component StatusIndicator inherits Rectangle {
+    in property <string> status;
+
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background: status == "running" ? #10b981 : status == "exited" ? #ef4444 : status == "paused" ? #f59e0b : #6b7280;
+}
+
+component ContainerItem inherits Rectangle {
+    in property <ContainerData> container;
+    callback container-action(string);
+
+    background: #2e3030;
+    border-radius: 8px;
+    height: 80px;
+
+    HorizontalLayout {
+        padding: 16px;
+        spacing: 16px;
+        alignment: space-between;
+
+        HorizontalLayout {
+            spacing: 16px;
+
+            StatusIndicator {
+                status: container.status;
+            }
+
+            VerticalLayout {
+                spacing: 4px;
+                alignment: start;
+
+                Text {
+                    text: container.name;
+                    color: #ffffff;
+                    font-size: 16px;
+                    font-weight: 600;
+                }
+
+                HorizontalLayout {
+                    spacing: 12px;
+
+                    Text {
+                        text: container.image;
+                        color: #9ca3af;
+                        font-size: 14px;
+                    }
+
+                    Text {
+                        text: "Portas: " + container.ports;
+                        color: #9ca3af;
+                        font-size: 14px;
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 12px;
+
+            VerticalLayout {
+                alignment: center;
+
+                Text {
+                    text: container.status;
+                    color: container.status == "running" ? #10b981 : container.status == "exited" ? #ef4444 : container.status == "paused" ? #f59e0b : #6b7280;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+
+                Text {
+                    width: 64px;
+                    text: container.created;
+                    color: #6b7280;
+                    font-size: 10px;
+                }
+            }
+
+            Rectangle {
+                width: container.status == "running" || container.status == "paused" ? 140px : 80px;
+
+                if container.status == "running": VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        Button {
+                            text: "Parar";
+                            bg: #1A1B1B;
+                            clicked => {
+                                container-action("stop");
+                            }
+                        }
+
+                        Button {
+                            text: "Pausar";
+                            bg: #1A1B1B;
+                            clicked => {
+                                container-action("pause");
+                            }
+                        }
+                    }
+                }
+
+                if container.status == "exited": Button {
+                    text: "Iniciar";
+                    bg: #1A1B1B;
+                    clicked => {
+                        container-action("start");
+                    }
+                }
+
+                if container.status == "paused": VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 12px;
+
+                        Button {
+                            text: "Iniciar";
+                            bg: #1A1B1B;
+                            clicked => {
+                                container-action("start");
+                            }
+                        }
+
+                        Button {
+                            text: "Parar";
+                            bg: #1A1B1B;
+                            clicked => {
+                                container-action("stop");
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 export component ContainersList inherits VerticalLayout {
+    in property <[ContainerData]> containers;
+    in property <string> search-text;
+    in property <string> status-filter: "all";
+
+    callback search-changed(string);
+    callback filter-changed(string);
+    callback container-action(string, string);
+
     padding: 24px;
     spacing: 24px;
 
@@ -45,203 +205,125 @@ export component ContainersList inherits VerticalLayout {
 
             Button {
                 text: "Novo Container";
+                size_w: 128px;
                 clicked => {
                 }
             }
         }
 
-        Rectangle {
-            background: #2e3030;
-            border-radius: 8px;
-            height: 40px;
-            width: 30%;
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: space-between;
 
-            VerticalLayout {
-                height: 100%;
-                alignment: center;
-                padding-left: 16px;
-                padding-right: 16px;
+            Rectangle {
+                background: #2e3030;
+                border-radius: 8px;
+                height: 40px;
+                width: 300px;
 
-                HorizontalLayout {
-                    spacing: 8px;
+                VerticalLayout {
+                    height: 100%;
+                    alignment: center;
+                    padding-left: 16px;
+                    padding-right: 16px;
 
-                    Image {
-                        source: @image-url("./icons/search.png");
-                        width: 20px;
-                        height: 20px;
-                        colorize: white;
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        Image {
+                            source: @image-url("./icons/search.png");
+                            width: 20px;
+                            height: 20px;
+                            colorize: white;
+                        }
+
+                        search-input := TextInput {
+                            // placeholder-text: "Buscar container";
+                            text: search-text;
+                            width: 100%;
+                            color: #ffffff;
+                            padding: 8px;
+                            edited => {
+                                search-changed(self.text);
+                            }
+                        }
                     }
+                }
+            }
 
-                    TextInput {
-                        text: "Buscar container";
-                        width: 100%;
-                        color: #ffffff;
-                        padding: 8px;
+            HorizontalLayout {
+                spacing: 8px;
+
+                Text {
+                    text: "Filtro: ";
+                    color: #9ca3af;
+                    vertical-alignment: center;
+                    font-size: 14px;
+                }
+
+                Button {
+                    text: "Todos";
+                    size_w: 90px;
+                    active: status-filter == "all";
+                    clicked => {
+                        filter-changed("all");
+                    }
+                }
+
+                Button {
+                    text: "Rodando";
+                    size_w: 90px;
+                    active: status-filter == "running";
+                    clicked => {
+                        filter-changed("running");
+                    }
+                }
+
+                Button {
+                    text: "Parados";
+                    size_w: 90px;
+                    active: status-filter == "exited";
+                    clicked => {
+                        filter-changed("exited");
+                    }
+                }
+
+                Button {
+                    text: "Pausados";
+                    size_w: 90px;
+                    active: status-filter == "paused";
+                    clicked => {
+                        filter-changed("paused");
                     }
                 }
             }
         }
     }
 
-    Flickable {
+    if containers.length == 0: Rectangle {
+        background: #2e3030;
+        border-radius: 8px;
+        height: 100px;
+
+        Text {
+            text: "Nenhum container encontrado";
+            color: #9ca3af;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-size: 16px;
+        }
+    }
+
+    if containers.length > 0: Flickable {
         vertical-stretch: 1;
 
         VerticalLayout {
-            spacing: 16px;
+            spacing: 12px;
 
-            Rectangle {
-                background: #2e3030;
-                border-radius: 8px;
-                height: 100px;
-
-                Text {
-                    text: "Lista de containers será implementada aqui";
-                    color: #9ca3af;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
-            Rectangle {
-                background: #2e3030;
-                border-radius: 8px;
-                height: 100px;
-
-                Text {
-                    text: "Lista de containers será implementada aqui";
-                    color: #9ca3af;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
-            Rectangle {
-                background: #2e3030;
-                border-radius: 8px;
-                height: 100px;
-
-                Text {
-                    text: "Lista de containers será implementada aqui";
-                    color: #9ca3af;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
-            Rectangle {
-                background: #2e3030;
-                border-radius: 8px;
-                height: 100px;
-
-                Text {
-                    text: "Lista de containers será implementada aqui";
-                    color: #9ca3af;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
-            Rectangle {
-                background: #2e3030;
-                border-radius: 8px;
-                height: 100px;
-
-                Text {
-                    text: "Lista de containers será implementada aqui";
-                    color: #9ca3af;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
-            Rectangle {
-                background: #2e3030;
-                border-radius: 8px;
-                height: 100px;
-
-                Text {
-                    text: "Lista de containers será implementada aqui";
-                    color: #9ca3af;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
-            Rectangle {
-                background: #2e3030;
-                border-radius: 8px;
-                height: 100px;
-
-                Text {
-                    text: "Lista de containers será implementada aqui";
-                    color: #9ca3af;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
-            Rectangle {
-                background: #2e3030;
-                border-radius: 8px;
-                height: 100px;
-
-                Text {
-                    text: "Lista de containers será implementada aqui";
-                    color: #9ca3af;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
-            Rectangle {
-                background: #2e3030;
-                border-radius: 8px;
-                height: 100px;
-
-                Text {
-                    text: "Lista de containers será implementada aqui";
-                    color: #9ca3af;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
-            Rectangle {
-                background: #2e3030;
-                border-radius: 8px;
-                height: 100px;
-
-                Text {
-                    text: "Lista de containers será implementada aqui";
-                    color: #9ca3af;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
-            Rectangle {
-                background: #2e3030;
-                border-radius: 8px;
-                height: 100px;
-
-                Text {
-                    text: "Lista de containers será implementada aqui";
-                    color: #9ca3af;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
-
-            Rectangle {
-                background: #2e3030;
-                border-radius: 8px;
-                height: 100px;
-
-                Text {
-                    text: "Lista de containers será implementada aqui";
-                    color: #9ca3af;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
+            for container in containers: ContainerItem {
+                container: container;
+                container-action(action) => {
+                    container-action(container.name, action);
                 }
             }
         }

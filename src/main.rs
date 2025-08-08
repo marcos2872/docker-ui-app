@@ -10,10 +10,12 @@ use std::time::{Duration, Instant};
 // Módulos locais
 mod chart;
 mod docker;
+mod list_containers;
 
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
 use docker::{ContainerInfo, DockerInfo, DockerManager};
+use list_containers::{ContainerUIManager, SlintContainerData, setup_container_ui_timer};
 
 // Struct Container para interface Slint
 // #[derive(Clone)]
@@ -125,6 +127,10 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
             // Carrega lista de containers
             if let Ok(containers) = docker_manager.list_containers().await {
                 update_containers_list(&ui, &containers);
+                // Converte containers para formato Slint
+                let slint_containers: Vec<SlintContainerData> =
+                    containers.iter().map(SlintContainerData::from).collect();
+                update_ui_containers_from_slint(&ui, &slint_containers);
             }
 
             let ui_weak_timer = ui_weak.clone();
@@ -134,6 +140,43 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
 
             // Cria uma única instância do DockerManager compartilhada entre atualizações
             let docker_manager_shared = Arc::new(tokio::sync::Mutex::new(docker_manager));
+
+            // Configura gerenciador de containers UI
+            let container_ui_manager = Arc::new(tokio::sync::Mutex::new(ContainerUIManager::new(
+                docker_manager_shared.clone(),
+            )));
+
+            let ui_weak_container = ui_weak.clone();
+            let _container_timer = setup_container_ui_timer(
+                container_ui_manager.clone(),
+                Arc::new(move |containers| {
+                    if let Some(ui) = ui_weak_container.upgrade() {
+                        update_ui_containers_from_slint(&ui, &containers);
+                    }
+                }),
+            );
+
+            // Configura callbacks de container
+            setup_container_callbacks(ui_weak.clone(), container_ui_manager.clone());
+
+            // Inicialização manual dos containers
+            let ui_weak_init = ui_weak.clone();
+            let container_ui_manager_init = container_ui_manager.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                {
+                    let mut manager = container_ui_manager_init.lock().await;
+                    if let Ok(()) = manager.refresh_containers().await {
+                        let filtered_containers = manager.get_filtered_containers();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_init.upgrade() {
+                                update_ui_containers_from_slint(&ui, &filtered_containers);
+                            }
+                        })
+                        .unwrap();
+                    }
+                }
+            });
 
             // Timer para atualizar estatísticas a cada segundo
             timer.start(TimerMode::Repeated, Duration::from_secs(1), move || {
@@ -255,6 +298,120 @@ fn update_docker_info(ui: &AppWindow, info: &DockerInfo) {
 // Atualiza lista de containers (não implementado)
 fn update_containers_list(_ui: &AppWindow, _containers: &[ContainerInfo]) {
     // Funcionalidade não implementada ainda
+}
+
+// Converte containers para formato Slint e atualiza UI
+fn update_ui_containers_from_slint(ui: &AppWindow, containers: &[SlintContainerData]) {
+    let slint_containers: Vec<_> = containers
+        .iter()
+        .map(|container| ContainerData {
+            name: container.name.clone(),
+            image: container.image.clone(),
+            status: container.status.clone(),
+            ports: container.ports.clone(),
+            created: container.created.clone(),
+        })
+        .collect();
+
+    let slint_model: std::rc::Rc<slint::VecModel<ContainerData>> =
+        std::rc::Rc::new(slint::VecModel::from(slint_containers));
+
+    ui.set_containers(slint_model.into());
+}
+
+// Configura callbacks específicos para containers
+fn setup_container_callbacks(
+    ui_weak: Weak<AppWindow>,
+    container_ui_manager: Arc<tokio::sync::Mutex<ContainerUIManager>>,
+) {
+    let ui = ui_weak.upgrade().unwrap();
+
+    // Callback para mudança na busca de containers
+    ui.on_search_changed({
+        let ui_weak = ui_weak.clone();
+        let container_manager = container_ui_manager.clone();
+        move |search_text| {
+            let ui_weak_clone = ui_weak.clone();
+            let container_manager_clone = container_manager.clone();
+            let search_string = search_text.to_string();
+
+            tokio::spawn(async move {
+                let mut manager = container_manager_clone.lock().await;
+                manager.set_search_filter(search_string);
+                let filtered_containers = manager.get_filtered_containers();
+                slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_weak_clone.upgrade() {
+                        update_ui_containers_from_slint(&ui, &filtered_containers);
+                    }
+                })
+                .unwrap();
+            });
+        }
+    });
+
+    // Callback para mudança no filtro de status
+    ui.on_filter_changed({
+        let ui_weak = ui_weak.clone();
+        let container_manager = container_ui_manager.clone();
+        move |status_filter| {
+            let ui_weak_clone = ui_weak.clone();
+            let container_manager_clone = container_manager.clone();
+            let status_string = status_filter.to_string();
+
+            tokio::spawn(async move {
+                let mut manager = container_manager_clone.lock().await;
+                manager.set_status_filter(status_string);
+                let filtered_containers = manager.get_filtered_containers();
+                slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_weak_clone.upgrade() {
+                        update_ui_containers_from_slint(&ui, &filtered_containers);
+                    }
+                })
+                .unwrap();
+            });
+        }
+    });
+
+    // Callback para ações em containers
+    ui.on_container_action({
+        let ui_weak = ui_weak.clone();
+        let container_manager = container_ui_manager.clone();
+        move |container_name, action| {
+            let ui_weak_clone = ui_weak.clone();
+            let container_manager_clone = container_manager.clone();
+            let container_name_str = container_name.to_string();
+            let action_str = action.to_string();
+
+            tokio::spawn(async move {
+                let manager = container_manager_clone.lock().await;
+
+                // Executa a ação no container
+                if let Err(e) = manager
+                    .execute_container_action(&container_name_str, &action_str)
+                    .await
+                {
+                    eprintln!("Container action failed: {}", e);
+                    return;
+                }
+
+                // Aguarda um pouco para o Docker processar a mudança
+                // tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+                // Atualiza a lista imediatamente após a ação
+                drop(manager); // Libera o lock
+                let mut manager = container_manager_clone.lock().await;
+                if let Ok(()) = manager.refresh_containers().await {
+                    let filtered_containers = manager.get_filtered_containers();
+                    slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_weak_clone.upgrade() {
+                            update_ui_containers_from_slint(&ui, &filtered_containers);
+                        }
+                    })
+                    .unwrap();
+                }
+            });
+        }
+    });
 }
 
 // Configura callbacks da interface

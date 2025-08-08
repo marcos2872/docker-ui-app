@@ -14,11 +14,11 @@ struct ChartPoint {
 
 // Dados básicos de um container
 struct ContainerData {
-    id: string,
     name: string,
     image: string,
-    state: string,
     status: string,
+    ports: string,
+    created: string,
 }
 
 // Botão do cabeçalho com estado ativo
@@ -68,8 +68,16 @@ export component AppWindow inherits Window {
     in-out property <image> cpu-chart;
     in-out property <image> memory-chart;
 
+    // Propriedades dos containers
+    in-out property <[ContainerData]> containers;
+    in-out property <string> search-text;
+    in-out property <string> status-filter: "all";
+
     // Callbacks para interação
     callback screen-changed(int);
+    callback search-changed(string);
+    callback filter-changed(string);
+    callback container-action(string, string);
 
     title: "Docker UI";
     min-width: 950px;
@@ -181,7 +189,23 @@ export component AppWindow inherits Window {
             }
 
             // Outras telas da aplicação
-            if root.current-screen == 1: ContainersList { }
+            if root.current-screen == 1: ContainersList { 
+                containers: root.containers;
+                search-text: root.search-text;
+                status-filter: root.status-filter;
+                
+                search-changed(text) => {
+                    root.search-text = text;
+                    root.search-changed(text);
+                }
+                filter-changed(filter) => {
+                    root.status-filter = filter;
+                    root.filter-changed(filter);
+                }
+                container-action(name, action) => {
+                    root.container-action(name, action);
+                }
+            }
             if root.current-screen == 2: ImagesList { }
             if root.current-screen == 3: NetworksList { }
             if root.current-screen == 4: VolumesList { }
