@@ -12,30 +12,48 @@ Uma aplicação de monitoramento Docker construída com Rust e Slint, oferecendo
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="images/Captura de tela de 2025-08-06 11-24-16.png" alt="Dashboard Principal" width="600"/>
+  <img src="images/dashboard.png" alt="Dashboard Principal" width="600"/>
   <br>
   <em>Dashboard principal com estatísticas em tempo real</em>
 </p>
 
-<p align="center">
-  <img src="images/Captura de tela de 2025-08-06 11-24-20.png" alt="Gráficos de Monitoramento" width="600"/>
-  <br>
-  <em>Gráficos de CPU e memória em tempo real</em>
-</p>
-
-### 🖼️ Galeria de Interface
+### 🖼️ Galeria Completa de Interface
 
 <table>
   <tr>
     <td align="center">
-      <img src="images/Captura de tela de 2025-08-06 11-24-16.png" width="300"/>
-      <br><strong>Dashboard Overview</strong>
-      <br><em>Cards de estatísticas e status</em>
+      <img src="images/dashboard.png" width="280"/>
+      <br><strong>📊 Dashboard</strong>
+      <br><em>Monitoramento em tempo real</em>
     </td>
     <td align="center">
-      <img src="images/Captura de tela de 2025-08-06 11-24-20.png" width="300"/>
-      <br><strong>Monitoramento em Tempo Real</strong>
-      <br><em>Gráficos de CPU, memória e rede</em>
+      <img src="images/containers.png" width="280"/>
+      <br><strong>🐳 Containers</strong>
+      <br><em>Gerenciamento completo</em>
+    </td>
+    <td align="center">
+      <img src="images/images.png" width="280"/>
+      <br><strong>🖼️ Images</strong>
+      <br><em>Controle de imagens Docker</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="images/networks.png" width="280"/>
+      <br><strong>🌐 Networks</strong>
+      <br><em>Redes personalizadas</em>
+    </td>
+    <td align="center">
+      <img src="images/volumes.png" width="280"/>
+      <br><strong>💾 Volumes</strong>
+      <br><em>Armazenamento persistente</em>
+    </td>
+    <td align="center">
+      <div style="height: 200px; display: flex; align-items: center; justify-content: center; background: #f8f9fa; border: 2px dashed #dee2e6; border-radius: 8px;">
+        <span style="color: #6c757d; font-size: 14px;">Interface Completa</span>
+      </div>
+      <br><strong>✨ Funcionalidades</strong>
+      <br><em>Todas as telas em uma UI</em>
     </td>
   </tr>
 </table>
