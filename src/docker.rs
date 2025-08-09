@@ -780,11 +780,23 @@ impl DockerManager {
                 let system_delta;
 
                 if let Some(prev_stats) = self.previous_stats.get(container_id) {
-                    // Usa dados do cache interno (mais precisos)
-                    cpu_delta = cpu_total.saturating_sub(prev_stats.cpu_total);
-                    system_delta = system_total.saturating_sub(prev_stats.system_total);
+                    // Usa dados do cache interno, mas verifica se são válidos
+                    let cache_cpu_delta = cpu_total.saturating_sub(prev_stats.cpu_total);
+                    let cache_system_delta = system_total.saturating_sub(prev_stats.system_total);
+                    
+                    // Se o delta do cache é muito pequeno, usa precpu_stats como fallback
+                    if cache_system_delta > 0 && cache_cpu_delta <= cache_system_delta * 10 {
+                        cpu_delta = cache_cpu_delta;
+                        system_delta = cache_system_delta;
+                    } else {
+                        // Fallback para precpu_stats se cache não parece confiável
+                        let cpu_total_prev = precpu_usage.total_usage.unwrap_or(0);
+                        let system_total_prev = precpu_stats.system_cpu_usage.unwrap_or(0);
+                        cpu_delta = cpu_total.saturating_sub(cpu_total_prev);
+                        system_delta = system_total.saturating_sub(system_total_prev);
+                    }
                 } else {
-                    // Primeira vez ou fallback para precpu_stats
+                    // Primeira vez - usa precpu_stats
                     let cpu_total_prev = precpu_usage.total_usage.unwrap_or(0);
                     let system_total_prev = precpu_stats.system_cpu_usage.unwrap_or(0);
 
@@ -795,27 +807,6 @@ impl DockerManager {
                 // Atualiza cache para próxima iteração
                 let (network_rx, network_tx) = self.get_network_stats(stats);
                 let (block_read, block_write) = self.get_block_stats(stats);
-
-                self.previous_stats.insert(
-                    container_id.to_string(),
-                    PreviousStats {
-                        timestamp: current_time,
-                        cpu_total,
-                        system_total,
-                        network_rx,
-                        network_tx,
-                        block_read,
-                        block_write,
-                    },
-                );
-
-                // Evita divisão por zero
-                if system_delta == 0 || cpu_delta == 0 {
-                    return CpuCalculate {
-                        online_cpus: 0,
-                        usage_cpu: 0.0,
-                    };
-                }
 
                 // Número de CPUs online (preferido) ou número de CPUs por core
                 let number_cpus = if let Some(online_cpus) = cpu_stats.online_cpus {
@@ -833,6 +824,35 @@ impl DockerManager {
                         1.0 // Fallback mínimo
                     }
                 };
+
+                self.previous_stats.insert(
+                    container_id.to_string(),
+                    PreviousStats {
+                        timestamp: current_time,
+                        cpu_total,
+                        system_total,
+                        network_rx,
+                        network_tx,
+                        block_read,
+                        block_write,
+                    },
+                );
+
+                // Evita divisão por zero - só retorna 0 se system_delta for 0
+                if system_delta == 0 {
+                    return CpuCalculate {
+                        online_cpus: number_cpus as u64,
+                        usage_cpu: 0.0,
+                    };
+                }
+                
+                // Se cpu_delta for 0, significa que não houve uso de CPU nesse período
+                if cpu_delta == 0 {
+                    return CpuCalculate {
+                        online_cpus: number_cpus as u64,
+                        usage_cpu: 0.0,
+                    };
+                }
 
                 // Fórmula correta do Docker CLI
                 let cpu_percent = (cpu_delta as f64 / system_delta as f64) * number_cpus * 100.0;
