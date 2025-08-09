@@ -98,6 +98,9 @@ export component AppWindow inherits Window {
     in-out property <[ContainerData]> containers;
     in-out property <string> search-text;
     in-out property <string> status-filter: "all";
+    in-out property <string> container-loading: "";
+    in-out property <string> container-error: "";
+    in-out property <string> container-success: "";
 
     // Propriedades das imagens
     in-out property <[ImageData]> images;
@@ -246,6 +249,9 @@ export component AppWindow inherits Window {
                 containers: root.containers;
                 search-text: root.search-text;
                 status-filter: root.status-filter;
+                container-loading: root.container-loading;
+                container-error: root.container-error;
+                container-success: root.container-success;
                 
                 search-changed(text) => {
                     root.search-text = text;

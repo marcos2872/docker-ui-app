@@ -47,6 +47,7 @@ component StatusIndicator inherits Rectangle {
 
 component ContainerItem inherits Rectangle {
     in property <ContainerData> container;
+    in property <string> loading-action;
     callback container-action(string);
 
     background: #2e3030;
@@ -126,18 +127,22 @@ component ContainerItem inherits Rectangle {
                         spacing: 12px;
 
                         Button {
-                            text: "Parar";
-                            bg: #1A1B1B;
+                            text: loading-action == container.name + "_stop" ? "..." : "Parar";
+                            bg: loading-action == container.name + "_stop" ? #6b7280 : #1A1B1B;
                             clicked => {
-                                container-action("stop");
+                                if (loading-action == "") {
+                                    container-action("stop");
+                                }
                             }
                         }
 
                         Button {
-                            text: "Pausar";
-                            bg: #1A1B1B;
+                            text: loading-action == container.name + "_pause" ? "..." : "Pausar";
+                            bg: loading-action == container.name + "_pause" ? #6b7280 : #1A1B1B;
                             clicked => {
-                                container-action("pause");
+                                if (loading-action == "") {
+                                    container-action("pause");
+                                }
                             }
                         }
                     }
@@ -149,18 +154,22 @@ component ContainerItem inherits Rectangle {
                         spacing: 12px;
 
                         Button {
-                            text: "Iniciar";
-                            bg: #1A1B1B;
+                            text: loading-action == container.name + "_start" ? "..." : "Iniciar";
+                            bg: loading-action == container.name + "_start" ? #6b7280 : #1A1B1B;
                             clicked => {
-                                container-action("start");
+                                if (loading-action == "") {
+                                    container-action("start");
+                                }
                             }
                         }
 
                         Button {
-                            text: "Deletar";
-                            bg: #1A1B1B;
+                            text: loading-action == container.name + "_remove" ? "..." : "Deletar";
+                            bg: loading-action == container.name + "_remove" ? #6b7280 : #1A1B1B;
                             clicked => {
-                                container-action("remove");
+                                if (loading-action == "") {
+                                    container-action("remove");
+                                }
                             }
                         }
                     }
@@ -172,18 +181,22 @@ component ContainerItem inherits Rectangle {
                         spacing: 12px;
 
                         Button {
-                            text: "Iniciar";
-                            bg: #1A1B1B;
+                            text: loading-action == container.name + "_unpause" ? "..." : "Iniciar";
+                            bg: loading-action == container.name + "_unpause" ? #6b7280 : #1A1B1B;
                             clicked => {
-                                container-action("unpause");
+                                if (loading-action == "") {
+                                    container-action("unpause");
+                                }
                             }
                         }
 
                         Button {
-                            text: "Parar";
-                            bg: #1A1B1B;
+                            text: loading-action == container.name + "_stop" ? "..." : "Parar";
+                            bg: loading-action == container.name + "_stop" ? #6b7280 : #1A1B1B;
                             clicked => {
-                                container-action("stop");
+                                if (loading-action == "") {
+                                    container-action("stop");
+                                }
                             }
                         }
                     }
@@ -197,6 +210,9 @@ export component ContainersList inherits VerticalLayout {
     in property <[ContainerData]> containers;
     in property <string> search-text;
     in property <string> status-filter: "all";
+    in property <string> container-loading;
+    in property <string> container-error;
+    in property <string> container-success;
 
     callback search-changed(string);
     callback filter-changed(string);
@@ -224,6 +240,47 @@ export component ContainersList inherits VerticalLayout {
                 text: "Novo Container";
                 size_w: 128px;
                 clicked => {
+                }
+            }
+        }
+
+        // Mensagens de feedback
+        if container-success != "": Rectangle {
+            height: 40px;
+            background: #065f46;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #10b981;
+            
+            HorizontalLayout {
+                alignment: center;
+                padding: 12px;
+                
+                Text {
+                    text: container-success;
+                    color: #d1fae5;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+        
+        if container-error != "": Rectangle {
+            height: 40px;
+            background: #7f1d1d;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #ef4444;
+            
+            HorizontalLayout {
+                alignment: center;
+                padding: 12px;
+                
+                Text {
+                    text: container-error;
+                    color: #fecaca;
+                    font-size: 14px;
+                    horizontal-alignment: center;
                 }
             }
         }
@@ -339,6 +396,7 @@ export component ContainersList inherits VerticalLayout {
 
             for container in containers: ContainerItem {
                 container: container;
+                loading-action: container-loading;
                 container-action(action) => {
                     container-action(container.name, action);
                 }

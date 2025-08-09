@@ -581,33 +581,103 @@ fn setup_container_callbacks(
             let container_manager_clone = container_manager.clone();
             let container_name_str = container_name.to_string();
             let action_str = action.to_string();
+            let loading_key = format!("{}_{}", container_name_str, action_str);
 
             tokio::spawn(async move {
-                let manager = container_manager_clone.lock().await;
+                // Define o estado de loading
+                let ui_weak_loading = ui_weak_clone.clone();
+                let loading_key_clone = loading_key.clone();
+                slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_weak_loading.upgrade() {
+                        ui.set_container_loading(loading_key_clone.into());
+                        ui.set_container_error("".into());
+                        ui.set_container_success("".into());
+                    }
+                })
+                .unwrap();
 
-                // Executa a ação no container
-                if let Err(e) = manager
-                    .execute_container_action(&container_name_str, &action_str)
-                    .await
-                {
-                    eprintln!("Container action failed: {}", e);
-                    return;
-                }
+                let (success, error_message) = {
+                    let manager = container_manager_clone.lock().await;
+                    
+                    // Executa a ação no container
+                    match manager
+                        .execute_container_action(&container_name_str, &action_str)
+                        .await
+                    {
+                        Ok(()) => (true, None),
+                        Err(e) => (false, Some(e.to_string())),
+                    }
+                };
 
-                // Aguarda um pouco para o Docker processar a mudança
-                // tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-
-                // Atualiza a lista imediatamente após a ação
-                drop(manager); // Libera o lock
-                let mut manager = container_manager_clone.lock().await;
-                if let Ok(()) = manager.refresh_containers().await {
-                    let filtered_containers = manager.get_filtered_containers();
+                // Limpa o loading e trata resultado
+                let ui_weak_result = ui_weak_clone.clone();
+                if success {
+                    let success_msg = match action_str.as_str() {
+                        "start" => format!("Container '{}' iniciado com sucesso", container_name_str),
+                        "stop" => format!("Container '{}' parado com sucesso", container_name_str),
+                        "pause" => format!("Container '{}' pausado com sucesso", container_name_str),
+                        "unpause" => format!("Container '{}' despausado com sucesso", container_name_str),
+                        "remove" => format!("Container '{}' removido com sucesso", container_name_str),
+                        _ => format!("Ação '{}' executada com sucesso no container '{}'", action_str, container_name_str),
+                    };
+                    
                     slint::invoke_from_event_loop(move || {
-                        if let Some(ui) = ui_weak_clone.upgrade() {
-                            update_ui_containers_from_slint(&ui, &filtered_containers);
+                        if let Some(ui) = ui_weak_result.upgrade() {
+                            ui.set_container_loading("".into());
+                            ui.set_container_error("".into());
+                            ui.set_container_success(success_msg.into());
                         }
                     })
                     .unwrap();
+                    
+                    // Timer para limpar mensagem de sucesso após 3 segundos
+                    let ui_weak_timer = ui_weak_clone.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_timer.upgrade() {
+                                ui.set_container_success("".into());
+                            }
+                        })
+                        .unwrap();
+                    });
+                } else if let Some(error) = error_message {
+                    let error_msg = format!("Erro ao executar '{}' no container '{}': {}", action_str, container_name_str, error);
+                    slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_weak_result.upgrade() {
+                            ui.set_container_loading("".into());
+                            ui.set_container_success("".into());
+                            ui.set_container_error(error_msg.into());
+                        }
+                    })
+                    .unwrap();
+                    
+                    // Timer para limpar mensagem de erro após 5 segundos
+                    let ui_weak_timer = ui_weak_clone.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_timer.upgrade() {
+                                ui.set_container_error("".into());
+                            }
+                        })
+                        .unwrap();
+                    });
+                }
+
+                // Atualiza a lista imediatamente após a ação bem-sucedida
+                if success {
+                    let mut manager = container_manager_clone.lock().await;
+                    if let Ok(()) = manager.refresh_containers().await {
+                        let filtered_containers = manager.get_filtered_containers();
+                        let ui_weak_final = ui_weak_clone.clone();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_final.upgrade() {
+                                update_ui_containers_from_slint(&ui, &filtered_containers);
+                            }
+                        })
+                        .unwrap();
+                    }
                 }
             });
         }
