@@ -2,8 +2,8 @@
 use anyhow::{Context, Result};
 use bollard::{
     Docker,
-    models::ContainerStatsResponse,
-    query_parameters::{ListContainersOptions, StatsOptions},
+    models::{ContainerStatsResponse, ImageSummary},
+    query_parameters::{ListContainersOptions, ListImagesOptions, StatsOptions},
 };
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,15 @@ pub struct ContainerInfo {
     pub status: String,
     pub ports: Vec<i32>,
     pub created: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImageInfo {
+    pub id: String,
+    pub tags: Vec<String>,
+    pub created: i64,
+    pub size: i64,
+    pub in_use: bool,
 }
 
 // Status possíveis do Docker
@@ -259,6 +268,59 @@ impl DockerManager {
                 container_name,
                 String::from_utf8_lossy(&output.stderr)
             ));
+        }
+
+        Ok(())
+    }
+
+    // Lista todas as imagens
+    pub async fn list_images(&self) -> Result<Vec<ImageInfo>> {
+        let images = self
+            .docker
+            .list_images(Some(ListImagesOptions {
+                all: false,
+                ..Default::default()
+            }))
+            .await
+            .context("Falha ao listar imagens")?;
+
+        let image_infos: Vec<ImageInfo> = images
+            .into_iter()
+            .map(|image: ImageSummary| {
+                let in_use = image.containers > 0;
+                ImageInfo {
+                    id: image.id.clone(),
+                    tags: image.repo_tags.clone(),
+                    created: image.created,
+                    size: image.size,
+                    in_use,
+                }
+            })
+            .collect();
+
+        Ok(image_infos)
+    }
+
+    // deleta uma imagem
+    pub async fn remove_image(&self, image_id: &str) -> Result<()> {
+        let output = Command::new("docker")
+            .args(&["rmi", image_id])
+            .output()
+            .context("Failed to execute docker rmi command")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+            if stderr.contains("conflict")
+                && stderr.contains("image is being used by running container")
+            {
+                return Err(anyhow::anyhow!(
+                    "IN_USE:A imagem está em uso por um contêiner."
+                ));
+            } else {
+                return Err(anyhow::anyhow!(
+                    "OTHER_ERROR:Não foi possível remover a imagem. Tente forçar a remoção."
+                ));
+            }
         }
 
         Ok(())
