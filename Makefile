@@ -1,11 +1,12 @@
 # Makefile for Docker UI
 
-.PHONY: help build clean dev release install uninstall deb list-builds clean-builds
+.PHONY: help build clean dev release install uninstall deb rpm list-builds clean-builds
 
 # Variables
 APP_NAME := docker-ui
 BUILD_DIR := builds
 DEB_SCRIPT := ./build-deb.sh
+RPM_SCRIPT := ./build-rpm.sh
 CLEAN_SCRIPT := ./clean-builds.sh
 
 # Colors
@@ -58,8 +59,15 @@ deb: ## Build .deb package
 	@echo -e "$(BLUE)Building .deb package...$(NC)"
 	$(DEB_SCRIPT)
 
+rpm: ## Build .rpm package for openSUSE
+	@echo -e "$(BLUE)Building .rpm package...$(NC)"
+	$(RPM_SCRIPT)
+
 release: check test build deb ## Full release build (check, test, build, package)
 	@echo -e "$(GREEN)Release build completed!$(NC)"
+
+release-rpm: check test build rpm ## Full release build for openSUSE (check, test, build, rpm)
+	@echo -e "$(GREEN)RPM release build completed!$(NC)"
 
 list-builds: ## List all builds
 	$(CLEAN_SCRIPT) list
@@ -81,17 +89,48 @@ install: deb ## Install .deb package locally
 		echo -e "$(YELLOW)No .deb package found. Run 'make deb' first.$(NC)"; \
 	fi
 
+install-rpm: rpm ## Install .rpm package locally (openSUSE)
+	@echo -e "$(BLUE)Installing RPM package...$(NC)"
+	@latest_rpm=$$(ls -t $(BUILD_DIR)/$(APP_NAME)-*.rpm 2>/dev/null | head -1); \
+	if [ -n "$$latest_rpm" ]; then \
+		echo -e "Installing: $$(basename "$$latest_rpm")"; \
+		sudo rpm -ivh "$$latest_rpm"; \
+		echo -e "$(GREEN)Installation completed!$(NC)"; \
+	else \
+		echo -e "$(YELLOW)No .rpm package found. Run 'make rpm' first.$(NC)"; \
+	fi
+
 uninstall: ## Uninstall application
 	@echo -e "$(BLUE)Uninstalling $(APP_NAME)...$(NC)"
-	sudo dpkg -r $(APP_NAME) || true
+	@if command -v dpkg >/dev/null 2>&1; then \
+		sudo dpkg -r $(APP_NAME) || true; \
+	elif command -v rpm >/dev/null 2>&1; then \
+		sudo rpm -e $(APP_NAME) || true; \
+	else \
+		echo -e "$(YELLOW)No package manager found (dpkg/rpm)$(NC)"; \
+	fi
 	@echo -e "$(GREEN)Uninstall completed!$(NC)"
 
 reinstall: uninstall install ## Reinstall application
 
+reinstall-rpm: uninstall install-rpm ## Reinstall application (openSUSE)
+
 deps: ## Install system dependencies
 	@echo -e "$(BLUE)Installing system dependencies...$(NC)"
-	sudo apt update
-	sudo apt install -y build-essential pkg-config libfontconfig1-dev
+	@if command -v zypper >/dev/null 2>&1; then \
+		echo -e "$(BLUE)Detected openSUSE - using zypper...$(NC)"; \
+		sudo zypper refresh; \
+		sudo zypper install -y gcc gcc-c++ pkg-config fontconfig-devel rpm-build; \
+	elif command -v apt >/dev/null 2>&1; then \
+		echo -e "$(BLUE)Detected Debian/Ubuntu - using apt...$(NC)"; \
+		sudo apt update; \
+		sudo apt install -y build-essential pkg-config libfontconfig1-dev; \
+	else \
+		echo -e "$(YELLOW)Unknown package manager. Please install manually:$(NC)"; \
+		echo "  - Rust build tools (gcc, pkg-config)"; \
+		echo "  - fontconfig development headers"; \
+		echo "  - rpm-build (for RPM packaging)"; \
+	fi
 
 setup: deps ## Setup development environment
 	@echo -e "$(BLUE)Setting up development environment...$(NC)"

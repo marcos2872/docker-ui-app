@@ -100,11 +100,25 @@ Uma aplicação de monitoramento Docker construída com Rust e Slint, oferecendo
 
 - **Rust** 1.70+ 
 - **Docker** instalado e rodando
-- **Dependências do sistema** (Ubuntu/Debian):
-  ```bash
-  sudo apt update
-  sudo apt install build-essential pkg-config libfontconfig1-dev
-  ```
+
+### Dependências por sistema
+
+#### Ubuntu/Debian:
+```bash
+sudo apt update
+sudo apt install build-essential pkg-config libfontconfig1-dev
+```
+
+#### openSUSE:
+```bash
+sudo zypper refresh
+sudo zypper install gcc gcc-c++ pkg-config fontconfig-devel rpm-build
+```
+
+#### Instalação automática:
+```bash
+make deps  # Detecta o sistema automaticamente
+```
 
 ## 📦 Instalação
 
@@ -132,7 +146,9 @@ make dev            # Run em modo desenvolvimento
 make watch          # Run com auto-reload
 ```
 
-### Geração de pacote .deb
+### Geração de pacotes
+
+#### Para sistemas Debian/Ubuntu (.deb)
 ```bash
 # Gerar pacote .deb versionado
 ./build-deb.sh
@@ -141,6 +157,17 @@ make deb
 
 # Build completo (check, test, build, package)
 make release
+```
+
+#### Para openSUSE (.rpm)
+```bash
+# Gerar pacote .rpm versionado
+./build-rpm.sh
+# ou
+make rpm
+
+# Build completo para openSUSE (check, test, build, rpm)
+make release-rpm
 ```
 
 ### Gerenciamento de builds
@@ -156,6 +183,8 @@ make clean-all-builds
 ```
 
 ### Instalação local
+
+#### Para sistemas Debian/Ubuntu
 ```bash
 # Instalar pacote .deb localmente
 make install
@@ -165,6 +194,24 @@ make uninstall
 
 # Reinstalar
 make reinstall
+```
+
+#### Para openSUSE
+```bash
+# Instalar pacote .rpm localmente
+make install-rpm
+
+# Desinstalar
+make uninstall
+
+# Reinstalar
+make reinstall-rpm
+
+# Instalação manual
+sudo rpm -ivh builds/docker-ui-*.rpm
+
+# Desinstalação manual
+sudo rpm -e docker-ui
 ```
 
 ## 🛠️ Desenvolvimento

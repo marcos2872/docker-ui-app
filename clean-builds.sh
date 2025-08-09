@@ -33,16 +33,34 @@ error() {
 # Função para listar builds
 list_builds() {
     echo -e "${BLUE}📦 Builds encontrados:${NC}"
+    
+    local deb_found=false
+    local rpm_found=false
+    
+    # Lista arquivos DEB
     if [ -d "$BUILDS_DIR" ] && [ -n "$(ls -A "$BUILDS_DIR"/*.deb 2>/dev/null)" ]; then
+        echo -e "${YELLOW}   📦 Pacotes DEB:${NC}"
         ls -lh "$BUILDS_DIR"/*.deb 2>/dev/null | while read -r line; do
-            echo "   $line"
+            echo "     $line"
         done
+        deb_found=true
+    fi
+    
+    # Lista arquivos RPM
+    if [ -d "$BUILDS_DIR" ] && [ -n "$(ls -A "$BUILDS_DIR"/*.rpm 2>/dev/null)" ]; then
+        echo -e "${YELLOW}   📦 Pacotes RPM:${NC}"
+        ls -lh "$BUILDS_DIR"/*.rpm 2>/dev/null | while read -r line; do
+            echo "     $line"
+        done
+        rpm_found=true
+    fi
+    
+    if [ "$deb_found" = false ] && [ "$rpm_found" = false ]; then
+        echo "   Nenhum build encontrado"
+    else
         echo ""
-        
         local total_size=$(du -sh "$BUILDS_DIR" 2>/dev/null | cut -f1)
         echo -e "${YELLOW}💾 Tamanho total: $total_size${NC}"
-    else
-        echo "   Nenhum build encontrado"
     fi
     echo ""
 }
@@ -51,36 +69,49 @@ list_builds() {
 clean_old_builds() {
     local keep=${1:-5}
     
-    log "Mantendo apenas os $keep builds mais recentes..."
+    log "Mantendo apenas os $keep builds mais recentes de cada tipo..."
     
     if [ ! -d "$BUILDS_DIR" ]; then
         warning "Diretório builds não existe"
         return
     fi
     
-    # Lista arquivos .deb por data (mais recentes primeiro)
-    local files=$(ls -t "$BUILDS_DIR"/${APP_NAME}_*.deb 2>/dev/null | tail -n +$((keep + 1)))
+    local total_removed=0
     
-    if [ -z "$files" ]; then
-        success "Nenhum build antigo para remover"
-        return
+    # Limpa arquivos .deb antigos
+    local deb_files=$(ls -t "$BUILDS_DIR"/${APP_NAME}_*.deb 2>/dev/null | tail -n +$((keep + 1)))
+    if [ -n "$deb_files" ]; then
+        echo -e "${YELLOW}   Limpando pacotes DEB antigos...${NC}"
+        for file in $deb_files; do
+            echo "   Removendo: $(basename "$file")"
+            rm -f "$file"
+            
+            # Remove arquivo .info correspondente se existir
+            local info_file="${file%.deb}_build.info"
+            if [ -f "$info_file" ]; then
+                rm -f "$info_file"
+            fi
+            
+            ((total_removed++))
+        done
     fi
     
-    local removed_count=0
-    for file in $files; do
-        echo "   Removendo: $(basename "$file")"
-        rm -f "$file"
-        
-        # Remove arquivo .info correspondente se existir
-        local info_file="${file%.deb}_build.info"
-        if [ -f "$info_file" ]; then
-            rm -f "$info_file"
-        fi
-        
-        ((removed_count++))
-    done
+    # Limpa arquivos .rpm antigos
+    local rpm_files=$(ls -t "$BUILDS_DIR"/${APP_NAME}-*.rpm 2>/dev/null | tail -n +$((keep + 1)))
+    if [ -n "$rpm_files" ]; then
+        echo -e "${YELLOW}   Limpando pacotes RPM antigos...${NC}"
+        for file in $rpm_files; do
+            echo "   Removendo: $(basename "$file")"
+            rm -f "$file"
+            ((total_removed++))
+        done
+    fi
     
-    success "$removed_count builds antigos removidos"
+    if [ $total_removed -eq 0 ]; then
+        success "Nenhum build antigo para remover"
+    else
+        success "$total_removed builds antigos removidos"
+    fi
 }
 
 # Função para limpar tudo
@@ -88,9 +119,12 @@ clean_all() {
     log "Removendo todos os builds..."
     
     if [ -d "$BUILDS_DIR" ]; then
-        local file_count=$(ls "$BUILDS_DIR"/*.deb 2>/dev/null | wc -l)
+        local deb_count=$(ls "$BUILDS_DIR"/*.deb 2>/dev/null | wc -l)
+        local rpm_count=$(ls "$BUILDS_DIR"/*.rpm 2>/dev/null | wc -l)
+        local total_count=$((deb_count + rpm_count))
+        
         rm -rf "$BUILDS_DIR"
-        success "$file_count arquivos removidos"
+        success "$total_count arquivos removidos ($deb_count DEB + $rpm_count RPM)"
     else
         warning "Diretório builds não existe"
     fi
@@ -102,26 +136,44 @@ clean_version() {
     
     if [ -z "$version" ]; then
         error "Versão não especificada"
+        return 1
     fi
     
     log "Removendo builds da versão $version..."
     
-    local pattern="${BUILDS_DIR}/${APP_NAME}_${version}-*"
-    local files=$(ls $pattern 2>/dev/null || true)
+    local removed_count=0
     
-    if [ -z "$files" ]; then
-        warning "Nenhum build encontrado para versão $version"
-        return
+    # Remove arquivos DEB da versão
+    local deb_pattern="${BUILDS_DIR}/${APP_NAME}_${version}-*"
+    local deb_files=$(ls $deb_pattern 2>/dev/null || true)
+    
+    if [ -n "$deb_files" ]; then
+        echo -e "${YELLOW}   Removendo pacotes DEB da versão $version...${NC}"
+        for file in $deb_files; do
+            echo "   Removendo: $(basename "$file")"
+            rm -f "$file"
+            ((removed_count++))
+        done
     fi
     
-    local removed_count=0
-    for file in $files; do
-        echo "   Removendo: $(basename "$file")"
-        rm -f "$file"
-        ((removed_count++))
-    done
+    # Remove arquivos RPM da versão
+    local rpm_pattern="${BUILDS_DIR}/${APP_NAME}-${version}-*"
+    local rpm_files=$(ls $rpm_pattern 2>/dev/null || true)
     
-    success "$removed_count arquivos removidos"
+    if [ -n "$rpm_files" ]; then
+        echo -e "${YELLOW}   Removendo pacotes RPM da versão $version...${NC}"
+        for file in $rpm_files; do
+            echo "   Removendo: $(basename "$file")"
+            rm -f "$file"
+            ((removed_count++))
+        done
+    fi
+    
+    if [ $removed_count -eq 0 ]; then
+        warning "Nenhum build encontrado para versão $version"
+    else
+        success "$removed_count arquivos removidos"
+    fi
 }
 
 # Função para mostrar uso

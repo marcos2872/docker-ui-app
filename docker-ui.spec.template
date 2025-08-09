@@ -1,0 +1,150 @@
+# Template RPM spec file para Docker UI
+# Para uso com openSUSE Leap/Tumbleweed
+
+Name:           docker-ui
+Version:        %{version}
+Release:        %{release}%{?dist}
+Summary:        Interface gráfica moderna para gerenciamento Docker
+
+License:        MIT
+Group:          Applications/System
+URL:            https://github.com/user/docker-ui-app
+Source0:        %{name}-%{version}.tar.gz
+BuildArch:      x86_64
+
+# Dependências de runtime
+Requires:       docker
+Requires:       glibc >= 2.17
+Requires:       libgcc_s1
+Requires:       libstdc++6
+
+# Dependências de build (se compilar durante o build)
+BuildRequires:  rust >= 1.70
+BuildRequires:  cargo
+BuildRequires:  gcc
+BuildRequires:  pkgconf-pkg-config
+BuildRequires:  fontconfig-devel
+
+# Para openSUSE específicamente
+%if 0%{?suse_version}
+BuildRequires:  libfontconfig1-dev
+Requires:       libfontconfig1
+%endif
+
+%description
+Docker UI é uma aplicação de monitoramento e gerenciamento Docker 
+construída com Rust e Slint. Oferece uma interface gráfica moderna 
+e intuitiva para visualizar estatísticas em tempo real e gerenciar 
+todos os recursos Docker.
+
+Principais funcionalidades:
+• Dashboard com monitoramento em tempo real de CPU, memória e rede
+• Gerenciamento completo de containers (start/stop/pause/remove)
+• Controle de imagens Docker com proteção contra remoção acidental
+• Gerenciamento de networks personalizadas (exclui networks de sistema)
+• Controle de volumes persistentes com proteção de dados
+• Interface responsiva com atualizações automáticas
+• Mensagens de feedback com auto-dismiss
+• Filtros e busca avançada
+
+%prep
+%setup -q
+
+%build
+# Se compilar durante o build
+# cargo build --release
+
+%install
+rm -rf %{buildroot}
+
+# Estrutura de diretórios
+install -d %{buildroot}/usr/bin
+install -d %{buildroot}/usr/share/applications
+install -d %{buildroot}/usr/share/icons/hicolor/32x32/apps
+install -d %{buildroot}/usr/share/icons/hicolor/48x48/apps
+install -d %{buildroot}/usr/share/icons/hicolor/64x64/apps
+install -d %{buildroot}/usr/share/icons/hicolor/96x96/apps
+install -d %{buildroot}/usr/share/icons/hicolor/128x128/apps
+install -d %{buildroot}/usr/share/doc/%{name}
+install -d %{buildroot}/usr/share/man/man1
+
+# Instala binário
+install -m 755 target/release/%{name} %{buildroot}/usr/bin/
+
+# Instala ícones
+install -m 644 assets/32x32.png %{buildroot}/usr/share/icons/hicolor/32x32/apps/%{name}.png
+install -m 644 assets/48x48.png %{buildroot}/usr/share/icons/hicolor/48x48/apps/%{name}.png
+install -m 644 assets/64x64.png %{buildroot}/usr/share/icons/hicolor/64x64/apps/%{name}.png
+install -m 644 assets/96x96.png %{buildroot}/usr/share/icons/hicolor/96x96/apps/%{name}.png
+install -m 644 assets/128x128.png %{buildroot}/usr/share/icons/hicolor/128x128/apps/%{name}.png
+
+# Instala arquivo .desktop
+cat > %{buildroot}/usr/share/applications/%{name}.desktop << 'EOF'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Docker UI
+GenericName=Docker Management
+Comment=Interface gráfica para gerenciamento Docker
+Exec=docker-ui
+Icon=docker-ui
+Categories=Development;System;Monitor;
+Terminal=false
+StartupNotify=true
+Keywords=docker;containers;monitoring;management;
+StartupWMClass=docker-ui
+EOF
+
+# Instala documentação
+install -m 644 README.md %{buildroot}/usr/share/doc/%{name}/
+%if 0%{?_licensedir:1}
+install -d %{buildroot}%{_licensedir}/%{name}
+install -m 644 LICENSE %{buildroot}%{_licensedir}/%{name}/
+%else
+install -m 644 LICENSE %{buildroot}/usr/share/doc/%{name}/
+%endif
+
+%clean
+rm -rf %{buildroot}
+
+%files
+%defattr(-,root,root,-)
+/usr/bin/%{name}
+/usr/share/applications/%{name}.desktop
+/usr/share/icons/hicolor/32x32/apps/%{name}.png
+/usr/share/icons/hicolor/48x48/apps/%{name}.png
+/usr/share/icons/hicolor/64x64/apps/%{name}.png
+/usr/share/icons/hicolor/96x96/apps/%{name}.png
+/usr/share/icons/hicolor/128x128/apps/%{name}.png
+%doc /usr/share/doc/%{name}/README.md
+
+%if 0%{?_licensedir:1}
+%license %{_licensedir}/%{name}/LICENSE
+%else
+%doc /usr/share/doc/%{name}/LICENSE
+%endif
+
+# Scripts de pós-instalação
+%post
+/usr/bin/update-desktop-database &> /dev/null || :
+/bin/touch --no-create /usr/share/icons/hicolor &>/dev/null || :
+
+%postun
+/usr/bin/update-desktop-database &> /dev/null || :
+if [ $1 -eq 0 ] ; then
+    /bin/touch --no-create /usr/share/icons/hicolor &>/dev/null
+    /usr/bin/gtk-update-icon-cache /usr/share/icons/hicolor &>/dev/null || :
+fi
+
+%posttrans
+/usr/bin/gtk-update-icon-cache /usr/share/icons/hicolor &>/dev/null || :
+
+%changelog
+* Fri Aug 09 2025 Docker UI Builder <builder@localhost> - 0.1.0-1
+- Versão inicial do Docker UI
+- Interface moderna construída com Rust e Slint
+- Dashboard com monitoramento em tempo real
+- Gerenciamento completo de containers
+- Controle de imagens, networks e volumes
+- Proteções contra operações perigosas
+- Suporte completo ao openSUSE
