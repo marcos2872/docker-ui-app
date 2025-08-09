@@ -29,6 +29,16 @@ struct ImageData {
     in_use: bool,
 }
 
+struct NetworkData {
+    id: string,
+    name: string,
+    driver: string,
+    scope: string,
+    created: string,
+    containers_count: int,
+    is_system: bool,
+}
+
 // Botão do cabeçalho com estado ativo
 component HeaderButton inherits Rectangle {
     in property <string> text;
@@ -89,6 +99,15 @@ export component AppWindow inherits Window {
     in-out property <string> error-other-message;
     callback refresh-images-clicked();
     callback image-action(string, string);
+
+    // Propriedades das networks
+    in-out property <[NetworkData]> networks;
+    in-out property <string> network-list-error;
+    in-out property <string> network-success-message;
+    in-out property <string> network-error-in-use-message;
+    in-out property <string> network-error-other-message;
+    callback refresh-networks-clicked();
+    callback network-action(string, string);
 
     // Callbacks para interação
     callback screen-changed(int);
@@ -236,7 +255,19 @@ export component AppWindow inherits Window {
                     root.image-action(id, action);
                 }
             }
-            if root.current-screen == 3: NetworksList { }
+            if root.current-screen == 3: NetworksList {
+                networks: root.networks;
+                network-list-error: root.network-list-error;
+                network_success_message: root.network-success-message;
+                network_error_in_use_message: root.network-error-in-use-message;
+                network_error_other_message: root.network-error-other-message;
+                refresh-clicked => {
+                    root.refresh-networks-clicked();
+                }
+                network-action(id, action) => {
+                    root.network-action(id, action);
+                }
+            }
             if root.current-screen == 4: VolumesList { }
         }
 

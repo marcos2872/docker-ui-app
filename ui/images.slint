@@ -132,19 +132,16 @@ component ImageItem inherits Rectangle {
                 }
             }
 
-            Rectangle {
-                width: 140px;
-                HorizontalLayout {
-                    alignment: center;
-                    spacing: 12px;
+            VerticalLayout {
+                alignment: center;
+                spacing: 12px;
 
-                    Button {
-                        text: "Deletar";
-                        bg: #1A1B1B;
-                        enabled: !image.in_use;
-                        clicked => {
-                            image-action("remove");
-                        }
+                Button {
+                    text: "Deletar";
+                    bg: #1A1B1B;
+                    enabled: !image.in_use;
+                    clicked => {
+                        image-action("remove");
                     }
                 }
             }
