@@ -90,27 +90,37 @@ fn format_creation_time(created: i64) -> slint::SharedString {
         return "desconhecido".into();
     }
 
-    use chrono::{DateTime, Local, Utc};
-    
+    use chrono::{DateTime, Utc};
+
     // O Docker retorna timestamp em segundos desde Unix Epoch
     match DateTime::from_timestamp(created, 0) {
         Some(created_time) => {
             let now = Utc::now();
             let duration = now.signed_duration_since(created_time);
-            
+
             let days = duration.num_days();
             let hours = duration.num_hours();
             let minutes = duration.num_minutes();
             let seconds = duration.num_seconds();
-            
+
             if days > 0 {
                 format!("há {} dia{}", days, if days == 1 { "" } else { "s" }).into()
             } else if hours > 0 {
                 format!("há {} hora{}", hours, if hours == 1 { "" } else { "s" }).into()
             } else if minutes > 0 {
-                format!("há {} minuto{}", minutes, if minutes == 1 { "" } else { "s" }).into()
+                format!(
+                    "há {} minuto{}",
+                    minutes,
+                    if minutes == 1 { "" } else { "s" }
+                )
+                .into()
             } else if seconds > 0 {
-                format!("há {} segundo{}", seconds, if seconds == 1 { "" } else { "s" }).into()
+                format!(
+                    "há {} segundo{}",
+                    seconds,
+                    if seconds == 1 { "" } else { "s" }
+                )
+                .into()
             } else {
                 "agora".into()
             }

@@ -39,6 +39,14 @@ struct NetworkData {
     is_system: bool,
 }
 
+struct VolumeData {
+    name: string,
+    driver: string,
+    mountpoint: string,
+    created: string,
+    containers_count: int,
+}
+
 // Botão do cabeçalho com estado ativo
 component HeaderButton inherits Rectangle {
     in property <string> text;
@@ -108,6 +116,15 @@ export component AppWindow inherits Window {
     in-out property <string> network-error-other-message;
     callback refresh-networks-clicked();
     callback network-action(string, string);
+
+    // Propriedades dos volumes
+    in-out property <[VolumeData]> volumes;
+    in-out property <string> volume-list-error;
+    in-out property <string> volume-success-message;
+    in-out property <string> volume-error-in-use-message;
+    in-out property <string> volume-error-other-message;
+    callback refresh-volumes-clicked();
+    callback volume-action(string, string);
 
     // Callbacks para interação
     callback screen-changed(int);
@@ -268,7 +285,19 @@ export component AppWindow inherits Window {
                     root.network-action(id, action);
                 }
             }
-            if root.current-screen == 4: VolumesList { }
+            if root.current-screen == 4: VolumesList {
+                volumes: root.volumes;
+                volume-list-error: root.volume-list-error;
+                volume_success_message: root.volume-success-message;
+                volume_error_in_use_message: root.volume-error-in-use-message;
+                volume_error_other_message: root.volume-error-other-message;
+                refresh-clicked => {
+                    root.refresh-volumes-clicked();
+                }
+                volume-action(name, action) => {
+                    root.volume-action(name, action);
+                }
+            }
         }
 
         // Rodapé com status do Docker
