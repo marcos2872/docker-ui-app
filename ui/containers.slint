@@ -206,6 +206,31 @@ component ContainerItem inherits Rectangle {
     }
 }
 
+component ErrorMessage inherits Rectangle {
+    in property <string> text;
+    in property <brush> bg;
+    in property <brush> bd-color;
+    in property <brush> text-color;
+
+    height: 40px;
+    background: bg;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: bd-color;
+
+    HorizontalLayout {
+        alignment: center;
+        padding: 12px;
+
+        Text {
+            text: text;
+            color: text-color;
+            font-size: 14px;
+            horizontal-alignment: center;
+        }
+    }
+}
+
 export component ContainersList inherits VerticalLayout {
     in property <[ContainerData]> containers;
     in property <string> search-text;
@@ -240,47 +265,6 @@ export component ContainersList inherits VerticalLayout {
                 text: "Novo Container";
                 size_w: 128px;
                 clicked => {
-                }
-            }
-        }
-
-        // Mensagens de feedback
-        if container-success != "": Rectangle {
-            height: 40px;
-            background: #065f46;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: #10b981;
-            
-            HorizontalLayout {
-                alignment: center;
-                padding: 12px;
-                
-                Text {
-                    text: container-success;
-                    color: #d1fae5;
-                    font-size: 14px;
-                    horizontal-alignment: center;
-                }
-            }
-        }
-        
-        if container-error != "": Rectangle {
-            height: 40px;
-            background: #7f1d1d;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: #ef4444;
-            
-            HorizontalLayout {
-                alignment: center;
-                padding: 12px;
-                
-                Text {
-                    text: container-error;
-                    color: #fecaca;
-                    font-size: 14px;
-                    horizontal-alignment: center;
                 }
             }
         }
@@ -370,6 +354,25 @@ export component ContainersList inherits VerticalLayout {
                         filter-changed("paused");
                     }
                 }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+
+        // Mensagens de feedback
+        if container-success != "": ErrorMessage {
+                bg: #065f46;
+                bd-color: #10b981;
+                text: container-success;
+                text-color: #d1fae5;
+            }
+
+            if container-error != "": ErrorMessage {
+                bg: #7f1d1d;
+                bd-color: #ef4444;
+                text: container-error;
+                text-color: #fecaca;
             }
         }
     }
