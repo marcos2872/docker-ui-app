@@ -42,13 +42,41 @@ Uma aplicação de monitoramento Docker construída com Rust e Slint, oferecendo
 
 ## ✨ Funcionalidades
 
-- 📊 **Dashboard em tempo real** - Monitoramento de CPU, memória e rede
-- 📈 **Gráficos interativos** - Visualização de dados históricos com plotters
-- 🐳 **Status do Docker** - Verificação automática do estado do daemon
-- 📋 **Gerenciamento completo** - Containers, imagens, volumes e redes
-- 🎨 **Interface modular** - Componentes separados e reutilizáveis
-- 🔄 **Arquitetura limpa** - Separação de responsabilidades UI/lógica
-- ⚡ **Performance otimizada** - Renderização eficiente com Slint
+### 📊 **Dashboard & Monitoramento**
+- **Dashboard em tempo real** - CPU, memória e rede com gráficos interativos
+- **Gráficos históricos** - Últimos 60 pontos de dados atualizados a cada segundo
+- **Status do Docker** - Verificação automática do daemon e informações do sistema
+
+### 🐳 **Gerenciamento de Containers**
+- **Lista completa** - Todos os containers (rodando, parados, pausados)
+- **Controles avançados** - Start, stop, pause, unpause, remove
+- **Busca e filtros** - Por nome, status (all/running/stopped/paused)
+- **Atualização em tempo real** - Lista atualizada automaticamente
+
+### 🖼️ **Gerenciamento de Imagens**
+- **Lista de imagens** - Com tags, tamanho e tempo de criação
+- **Status de uso** - Indica se imagem está sendo usada por containers
+- **Remoção segura** - Impede exclusão de imagens em uso
+- **Ordenação consistente** - Lista mantém ordem alfabética
+
+### 🌐 **Gerenciamento de Networks**
+- **Networks personalizadas** - Exclui networks de sistema (bridge, host, none)
+- **Contagem de containers** - Mostra quantos containers estão conectados
+- **Proteção inteligente** - Impede remoção de networks em uso
+- **Indicadores visuais** - Verde (disponível) / Amarelo (em uso)
+
+### 💾 **Gerenciamento de Volumes**
+- **Volumes ativos** - Mostra apenas volumes com containers conectados
+- **Path completo** - Exibe mountpoint com truncagem inteligente
+- **Proteção de dados** - Impede remoção de volumes em uso
+- **Driver e metadata** - Informações detalhadas de cada volume
+
+### ⚡ **Funcionalidades Avançadas**
+- **Interface modular** - Componentes separados e reutilizáveis
+- **Mensagens temporárias** - Feedback com auto-dismiss em 3 segundos
+- **Ordenação consistente** - Listas mantêm ordem entre atualizações
+- **Performance otimizada** - Renderização eficiente com Slint
+- **Arquitetura limpa** - Separação UI/lógica com padrões consistentes
 
 ## 🚀 Pré-requisitos
 
@@ -180,16 +208,18 @@ Cada componente é independente e reutilizável, facilitando manutenção e dese
    ```
 
 2. **Navegue pelas abas:**
-   - **Docker UI**: Dashboard principal com estatísticas
-   - **Containers**: Lista e gerenciamento de containers
-   - **Images**: Visualização de imagens Docker
-   - **Networks**: Configuração de redes
-   - **Volumes**: Gerenciamento de volumes
+   - **Docker UI**: Dashboard principal com estatísticas em tempo real
+   - **Containers**: Gerenciamento completo (start/stop/pause/remove)
+   - **Images**: Visualização e remoção de imagens Docker
+   - **Networks**: Gerenciamento de redes personalizadas
+   - **Volumes**: Gerenciamento de volumes ativos
 
-3. **Monitoramento:**
-   - Gráficos são atualizados a cada segundo
-   - Status do Docker é verificado automaticamente
-   - Dados históricos mantêm últimos 60 pontos
+3. **Funcionalidades principais:**
+   - **Monitoramento**: Gráficos atualizados a cada segundo
+   - **Controle**: Ações em containers, imagens, networks e volumes
+   - **Proteção**: Impede remoção de recursos em uso
+   - **Feedback**: Mensagens de sucesso/erro com auto-dismiss
+   - **Consistência**: Listas mantêm ordem alfabética
 
 ## 🏗️ Arquitetura
 
