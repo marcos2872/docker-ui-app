@@ -13,6 +13,7 @@ mod docker;
 mod list_containers;
 mod list_images;
 mod list_networks;
+mod list_volumes;
 
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
@@ -20,6 +21,7 @@ use docker::{ContainerInfo, DockerInfo, DockerManager};
 use list_containers::{setup_container_ui_timer, ContainerUIManager, SlintContainerData};
 use list_images::{ImageUIManager, SlintImageData};
 use list_networks::{NetworkUIManager, SlintNetworkData};
+use list_volumes::{VolumeUIManager, SlintVolumeData};
 
 // Struct Container para interface Slint
 // #[derive(Clone)]
@@ -254,6 +256,50 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
                 }
             });
 
+            // Configura gerenciador de volumes UI
+            let volume_ui_manager = Arc::new(tokio::sync::Mutex::new(VolumeUIManager::new(
+                docker_manager_shared.clone(),
+            )));
+
+            // Configura callbacks de volume
+            setup_volume_callbacks(ui_weak.clone(), volume_ui_manager.clone());
+
+            // Configura timer para atualizar volumes a cada segundo
+            let ui_weak_volumes = ui_weak.clone();
+            let volume_ui_manager_timer = volume_ui_manager.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
+                
+                loop {
+                    interval.tick().await;
+                    
+                    let mut manager = volume_ui_manager_timer.lock().await;
+                    match manager.refresh_volumes().await {
+                        Ok(()) => {
+                            let volumes = manager.get_volumes();
+                            let ui_weak_clone = ui_weak_volumes.clone();
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_clone.upgrade() {
+                                    ui.set_volume_list_error("".into());
+                                    update_ui_volumes_from_slint(&ui, &volumes);
+                                }
+                            })
+                            .unwrap();
+                        }
+                        Err(e) => {
+                            let error_message = e.to_string();
+                            let ui_weak_clone = ui_weak_volumes.clone();
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_clone.upgrade() {
+                                    ui.set_volume_list_error(error_message.into());
+                                }
+                            })
+                            .unwrap();
+                        }
+                    }
+                }
+            });
+
             // Inicialização manual dos containers
             let ui_weak_init = ui_weak.clone();
             let container_ui_manager_init = container_ui_manager.clone();
@@ -433,6 +479,25 @@ fn update_ui_networks_from_slint(ui: &AppWindow, networks: &[SlintNetworkData]) 
         std::rc::Rc::new(slint::VecModel::from(slint_networks));
 
     ui.set_networks(slint_model.into());
+}
+
+// Converte volumes para formato Slint e atualiza UI
+fn update_ui_volumes_from_slint(ui: &AppWindow, volumes: &[SlintVolumeData]) {
+    let slint_volumes: Vec<_> = volumes
+        .iter()
+        .map(|volume| VolumeData {
+            name: volume.name.clone(),
+            driver: volume.driver.clone(),
+            mountpoint: volume.mountpoint.clone(),
+            created: volume.created.clone(),
+            containers_count: volume.containers_count,
+        })
+        .collect();
+
+    let slint_model: std::rc::Rc<slint::VecModel<VolumeData>> =
+        std::rc::Rc::new(slint::VecModel::from(slint_volumes));
+
+    ui.set_volumes(slint_model.into());
 }
 
 // Converte containers para formato Slint e atualiza UI
@@ -822,6 +887,147 @@ fn setup_network_callbacks(
                     slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak_final.upgrade() {
                             update_ui_networks_from_slint(&ui, &networks);
+                        }
+                    })
+                    .unwrap();
+                }
+            });
+        }
+    });
+}
+
+// Configura callbacks específicos para volumes
+fn setup_volume_callbacks(
+    ui_weak: Weak<AppWindow>,
+    volume_ui_manager: Arc<tokio::sync::Mutex<VolumeUIManager>>,
+) {
+    let ui = ui_weak.upgrade().unwrap();
+
+    // Callback para refresh de volumes
+    ui.on_refresh_volumes_clicked({
+        let ui_weak = ui_weak.clone();
+        let volume_manager = volume_ui_manager.clone();
+        move || {
+            let ui_weak_clone = ui_weak.clone();
+            let volume_manager_clone = volume_manager.clone();
+
+            tokio::spawn(async move {
+                let mut manager = volume_manager_clone.lock().await;
+                match manager.refresh_volumes().await {
+                    Ok(()) => {
+                        let volumes = manager.get_volumes();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_clone.upgrade() {
+                                ui.set_volume_list_error("".into());
+                                update_ui_volumes_from_slint(&ui, &volumes);
+                            }
+                        })
+                        .unwrap();
+                    }
+                    Err(e) => {
+                        let error_message = e.to_string();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_clone.upgrade() {
+                                ui.set_volume_list_error(error_message.into());
+                            }
+                        })
+                        .unwrap();
+                    }
+                }
+            });
+        }
+    });
+
+    // Callback para ações em volumes
+    ui.on_volume_action({
+        let ui_weak = ui_weak.clone();
+        let volume_manager = volume_ui_manager.clone();
+        move |volume_name, action| {
+            let ui_weak_clone = ui_weak.clone();
+            let volume_manager_clone = volume_manager.clone();
+            let volume_name_str = volume_name.to_string();
+            let action_str = action.to_string();
+
+            tokio::spawn(async move {
+                let manager = volume_manager_clone.lock().await;
+
+                // Executa a ação no volume
+                let result = manager
+                    .execute_volume_action(&volume_name_str, &action_str)
+                    .await;
+
+                let ui_weak_result = ui_weak_clone.clone();
+                match result {
+                    Ok(success_message) => {
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_result.upgrade() {
+                                ui.set_volume_success_message("".into());
+                                ui.set_volume_error_in_use_message("".into());
+                                ui.set_volume_error_other_message("".into());
+                                ui.set_volume_success_message(success_message.into());
+                            }
+                        })
+                        .unwrap();
+                        
+                        // Timer para limpar mensagem de sucesso após 3 segundos
+                        let ui_weak_timer = ui_weak_clone.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_timer.upgrade() {
+                                    ui.set_volume_success_message("".into());
+                                }
+                            })
+                            .unwrap();
+                        });
+                    }
+                    Err(error_message) => {
+                        let error_message_clone = error_message.clone();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_result.upgrade() {
+                                ui.set_volume_success_message("".into());
+                                ui.set_volume_error_in_use_message("".into());
+                                ui.set_volume_error_other_message("".into());
+                                
+                                if error_message_clone.starts_with("IN_USE:") {
+                                    let msg = error_message_clone
+                                        .strip_prefix("IN_USE:")
+                                        .unwrap_or(&error_message_clone);
+                                    ui.set_volume_error_in_use_message(msg.into());
+                                } else {
+                                    let msg = error_message_clone
+                                        .strip_prefix("OTHER_ERROR:")
+                                        .unwrap_or(&error_message_clone);
+                                    ui.set_volume_error_other_message(msg.into());
+                                }
+                            }
+                        })
+                        .unwrap();
+                        
+                        // Timer para limpar mensagens de erro após 3 segundos
+                        let ui_weak_timer = ui_weak_clone.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_timer.upgrade() {
+                                    ui.set_volume_error_in_use_message("".into());
+                                    ui.set_volume_error_other_message("".into());
+                                }
+                            })
+                            .unwrap();
+                        });
+                    }
+                }
+
+                // Atualiza a lista imediatamente após a ação
+                drop(manager); // Libera o lock
+                let mut manager = volume_manager_clone.lock().await;
+                if let Ok(()) = manager.refresh_volumes().await {
+                    let volumes = manager.get_volumes();
+                    let ui_weak_final = ui_weak_clone.clone();
+                    slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_weak_final.upgrade() {
+                            update_ui_volumes_from_slint(&ui, &volumes);
                         }
                     })
                     .unwrap();

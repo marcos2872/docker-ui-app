@@ -4,13 +4,14 @@ use bollard::{
     Docker,
     models::{ContainerStatsResponse, ImageSummary},
     query_parameters::{
-        ListContainersOptions, ListImagesOptions, ListNetworksOptions, StatsOptions,
+        ListContainersOptions, ListImagesOptions, ListNetworksOptions, ListVolumesOptions,
+        StatsOptions,
     },
 };
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt,
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -48,6 +49,15 @@ pub struct NetworkInfo {
     pub is_system: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VolumeInfo {
+    pub name: String,
+    pub driver: String,
+    pub mountpoint: String,
+    pub created: String,
+    pub containers_count: i32,
+}
+
 // Status possíveis do Docker
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DockerStatus {
@@ -70,6 +80,7 @@ impl fmt::Display for DockerStatus {
 
 // Cache para estatísticas anteriores (necessário para cálculo de delta)
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Alguns campos podem ser usados no futuro
 struct PreviousStats {
     timestamp: u64,
     cpu_total: u64,
@@ -297,7 +308,7 @@ impl DockerManager {
             .await
             .context("Falha ao listar imagens")?;
 
-        let image_infos: Vec<ImageInfo> = images
+        let mut image_infos: Vec<ImageInfo> = images
             .into_iter()
             .map(|image: ImageSummary| {
                 let in_use = image.containers > 0;
@@ -310,6 +321,13 @@ impl DockerManager {
                 }
             })
             .collect();
+
+        // Ordena por nome da primeira tag para manter ordem consistente
+        image_infos.sort_by(|a, b| {
+            let tag_a = a.tags.get(0).cloned().unwrap_or_default();
+            let tag_b = b.tags.get(0).cloned().unwrap_or_default();
+            tag_a.cmp(&tag_b)
+        });
 
         Ok(image_infos)
     }
@@ -370,7 +388,7 @@ impl DockerManager {
             })
             .collect();
 
-        let network_infos: Vec<NetworkInfo> = networks
+        let mut network_infos: Vec<NetworkInfo> = networks
             .into_iter()
             .filter_map(|network| {
                 let network_name = network.name.as_deref().unwrap_or("");
@@ -403,6 +421,9 @@ impl DockerManager {
             })
             .collect();
 
+        // Ordena por nome para manter ordem consistente
+        network_infos.sort_by(|a, b| a.name.cmp(&b.name));
+
         Ok(network_infos)
     }
 
@@ -424,6 +445,101 @@ impl DockerManager {
             } else {
                 return Err(anyhow::anyhow!(
                     "OTHER_ERROR:Não foi possível remover a network: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    // Lista todos os volumes de containers
+    pub async fn list_volumes(&self) -> Result<Vec<VolumeInfo>> {
+        let volumes = self
+            .docker
+            .list_volumes(Some(ListVolumesOptions {
+                ..Default::default()
+            }))
+            .await
+            .context("Falha ao listar volumes")?;
+
+        let containers = self
+            .docker
+            .list_containers(Some(ListContainersOptions {
+                all: true,
+                ..Default::default()
+            }))
+            .await
+            .context("Falha ao listar containers")?;
+
+        // Coleta nomes de volumes usados pelos containers
+        let mut used_volumes: HashMap<String, i32> = HashMap::new();
+        for container in containers {
+            if let Some(mounts) = container.mounts {
+                for mount in mounts {
+                    if let Some(name) = mount.name {
+                        if let Some(mount_type) = mount.typ.as_ref() {
+                            if format!("{:?}", mount_type)
+                                .to_lowercase()
+                                .contains("volume")
+                            {
+                                *used_volumes.entry(name).or_insert(0) += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut volume_infos: Vec<VolumeInfo> = volumes
+            .volumes
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|volume| {
+                let volume_name = volume.name.clone();
+
+                // Só inclui volumes que são usados por containers
+                let containers_count = used_volumes.get(&volume_name).cloned().unwrap_or(0);
+
+                // Filtra volumes não utilizados - só mostra volumes com containers
+                if containers_count == 0 {
+                    return None;
+                }
+
+                Some(VolumeInfo {
+                    name: volume_name,
+                    driver: volume.driver,
+                    mountpoint: volume.mountpoint,
+                    created: volume.created_at.unwrap_or_default(),
+                    containers_count,
+                })
+            })
+            .collect();
+
+        // Ordena por nome para manter ordem consistente
+        volume_infos.sort_by(|a, b| a.name.cmp(&b.name));
+
+        Ok(volume_infos)
+    }
+
+    // Remove um volume
+    pub async fn remove_volume(&self, volume_name: &str) -> Result<()> {
+        let output = Command::new("docker")
+            .args(&["volume", "rm", volume_name])
+            .output()
+            .context("Failed to execute docker volume rm command")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+            if stderr.contains("volume is in use") || stderr.contains("in use") {
+                return Err(anyhow::anyhow!(
+                    "IN_USE:O volume está sendo usado por containers."
+                ));
+            } else if stderr.contains("not found") || stderr.contains("no such volume") {
+                return Err(anyhow::anyhow!("OTHER_ERROR:Volume não encontrado."));
+            } else {
+                return Err(anyhow::anyhow!(
+                    "OTHER_ERROR:Não foi possível remover o volume: {}",
                     String::from_utf8_lossy(&output.stderr)
                 ));
             }
