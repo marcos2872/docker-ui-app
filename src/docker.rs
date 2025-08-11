@@ -1169,4 +1169,100 @@ impl DockerManager {
 
         Ok(formatted_logs)
     }
+
+    // Obter estatísticas de um container específico
+    pub async fn get_single_container_stats(
+        &mut self,
+        container_name: &str,
+    ) -> Result<(f64, u64, String, String, String)> {
+        use bollard::query_parameters::StatsOptions;
+        use futures_util::StreamExt;
+
+        let stats_options = Some(StatsOptions {
+            stream: false,
+            one_shot: true,
+        });
+
+        let mut stats_stream = self.docker.stats(container_name, stats_options);
+
+        if let Some(stats_result) = stats_stream.next().await {
+            match stats_result {
+                Ok(stats) => {
+                    // Calcula CPU usando função existente
+                    let current_time = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs();
+                    let cpu_calc = self.calculate_cpu_percentage_with_cache(
+                        container_name,
+                        &stats,
+                        current_time,
+                    );
+                    let cpu_usage = cpu_calc.usage_cpu;
+                    let cpu_online = cpu_calc.online_cpus;
+
+                    // Calcula memória
+                    let memory_stats = stats.memory_stats.as_ref().cloned().unwrap_or_default();
+                    let memory_usage = memory_stats.usage.unwrap_or(0);
+                    let memory_limit = memory_stats.limit.unwrap_or(0);
+
+                    let memory_usage_mb = memory_usage as f64 / 1024.0 / 1024.0;
+                    let memory_limit_mb = memory_limit as f64 / 1024.0 / 1024.0;
+                    let memory_percentage = if memory_limit > 0 {
+                        (memory_usage as f64 / memory_limit as f64) * 100.0
+                    } else {
+                        0.0
+                    };
+
+                    let memory_str = if memory_usage_mb >= 1024.0 || memory_limit_mb >= 1024.0 {
+                        let memory_usage_gb = memory_usage_mb / 1024.0;
+                        let memory_limit_gb = memory_limit_mb / 1024.0;
+
+                        if memory_usage_mb >= 1024.0 && memory_limit_mb >= 1024.0 {
+                            format!(
+                                "{:.1}% ({:.1} GB / {:.1} GB)",
+                                memory_percentage, memory_usage_gb, memory_limit_gb
+                            )
+                        } else if memory_usage_mb >= 1024.0 {
+                            format!(
+                                "{:.1}% ({:.1} GB / {:.0} MB)",
+                                memory_percentage, memory_usage_gb, memory_limit_mb
+                            )
+                        } else {
+                            format!(
+                                "{:.1}% ({:.0} MB / {:.1} GB)",
+                                memory_percentage, memory_usage_mb, memory_limit_gb
+                            )
+                        }
+                    } else {
+                        format!(
+                            "{:.1}% ({:.0} MB / {:.0} MB)",
+                            memory_percentage, memory_usage_mb, memory_limit_mb
+                        )
+                    };
+
+                    // Calcula network
+                    let (rx, tx) = self.get_network_stats(&stats);
+                    let rx_str = self.format_bytes_rate(rx);
+                    let tx_str = self.format_bytes_rate(tx);
+
+                    Ok((cpu_usage, cpu_online, memory_str, rx_str, tx_str))
+                }
+                Err(e) => Err(anyhow::anyhow!("Erro ao obter stats do container: {}", e)),
+            }
+        } else {
+            Err(anyhow::anyhow!("Nenhum stat recebido para o container"))
+        }
+    }
+
+    // Função auxiliar para formatar bytes/s
+    fn format_bytes_rate(&self, bytes: u64) -> String {
+        if bytes < 1024 {
+            format!("{} B/s", bytes)
+        } else if bytes < 1024 * 1024 {
+            format!("{:.1} KB/s", bytes as f64 / 1024.0)
+        } else {
+            format!("{:.1} MB/s", bytes as f64 / 1024.0 / 1024.0)
+        }
+    }
 }

@@ -36,6 +36,56 @@ component Button inherits Rectangle {
     }
 }
 
+component ChartContainer inherits Rectangle {
+    in property <string> title;
+    in property <string> current-value;
+    in property <color> chart-color: #3b82f6;
+    in property <image> chart-image;
+
+    background: #2e3030;
+    border-radius: 8px;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            alignment: space-between;
+
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: start;
+
+                Text {
+                    text: root.title;
+                    color: #ffffff;
+                    font-size: 18px;
+                    font-weight: 600;
+                }
+
+                Text {
+                    text: root.current-value;
+                    color: root.chart-color;
+                    font-size: 18px;
+                    font-weight: 700;
+                }
+            }
+
+            Text {
+                text: "Último minuto";
+                color: #ffffff;
+                font-size: 14px;
+            }
+        }
+
+        Image {
+            source: root.chart-image;
+            width: 100%;
+            height: 256px;
+        }
+    }
+}
+
 export component ContainerDetails inherits VerticalLayout {
     in property <ContainerData> container;
     in property <string> loading-action;
@@ -43,10 +93,21 @@ export component ContainerDetails inherits VerticalLayout {
     in property <string> container-success;
     in property <string> container-logs;
     in property <bool> logs-loading: false;
+    in property <string> container-cpu-usage: "0.0%";
+    in property <string> container-cpu-total: "0%";
+    in property <string> container-memory-usage: "0 MB";
+    in property <string> container-network-rx: "0 KB/s";
+    in property <string> container-network-tx: "0 KB/s";
+    in property <image> container-cpu-chart;
+    in property <image> container-memory-chart;
+    in property <bool> metrics-expanded: false;
+    in property <bool> logs-expanded: false;
 
     callback back-clicked();
     callback container-action(string);
     callback load-more-logs();
+    callback toggle-metrics();
+    callback toggle-logs();
 
     padding: 24px;
     spacing: 24px;
@@ -302,63 +363,273 @@ export component ContainerDetails inherits VerticalLayout {
         }
     }
 
-    Rectangle {
-        background: #2e3030;
-        border-radius: 8px;
-        vertical-stretch: 0;
+    // Área com scroll para métricas e logs
+    Flickable {
+        vertical-stretch: 1;
+        viewport-height: metrics-section-height + logs-section-height + 24px;
+
+        property <length> metrics-section-height: metrics-expanded ? 900px : 60px;
+        property <length> logs-section-height: logs-expanded ? 900px : 60px;
 
         VerticalLayout {
-            padding: 16px;
-            spacing: 12px;
+            spacing: 24px;
 
-            HorizontalLayout {
-                alignment: space-between;
+            // Seção de Métricas (recolhível)
+            Rectangle {
+                background: #2e3030;
+                border-radius: 8px;
+                height: metrics-expanded ? 900px : 60px;
 
-                Text {
-                    text: "Logs do Container";
-                    font-size: 18px;
-                    font-weight: 600;
-                    color: #ffffff;
-                    vertical-alignment: center;
-                }
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 16px;
 
-                Button {
-                    text: logs-loading ? "Carregando..." : "↑ Carregar Mais";
-                    size_w: 140px;
-                    size_h: 28px;
-                    bg: logs-loading ? #6b7280 : #374151;
-                    clicked => {
-                        if (!logs-loading) {
-                            load-more-logs();
+                    // Header da seção de métricas (sempre visível)
+                    Rectangle {
+                        background: metrics-expanded ? #374151 : transparent;
+                        border-radius: 8px;
+                        height: 60px;
+
+                        TouchArea {
+                            clicked => {
+                                toggle-metrics();
+                            }
+                        }
+
+                        HorizontalLayout {
+                            height: 60px;
+                            padding: 8px;
+                            spacing: 12px;
+                            alignment: space-between;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: start;
+
+                                Text {
+                                    text: metrics-expanded ? "▼" : "▶";
+                                    color: #ffffff;
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                }
+
+                                Text {
+                                    text: "Métricas em Tempo Real";
+                                    color: #ffffff;
+                                    font-size: 18px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            // Preview das métricas quando recolhido
+                            if !metrics-expanded: HorizontalLayout {
+                                spacing: 20px;
+                                alignment: end;
+
+                                Text {
+                                    text: "CPU: " + container-cpu-usage;
+                                    color: #3b82f6;
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                }
+
+                                Text {
+                                    text: "MEM: " + container-memory-usage;
+                                    color: #10b981;
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                }
+
+                                Text {
+                                    text: "NET: " + container-network-rx;
+                                    color: #f59e0b;
+                                    font-size: 14px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    // Conteúdo expandido das métricas
+                    if metrics-expanded: VerticalLayout {
+                        spacing: 16px;
+
+                        // CPU Chart
+                        ChartContainer {
+                            title: "Uso de CPU";
+                            current-value: container-cpu-usage + " | " + container-cpu-total;
+                            chart-color: #3b82f6;
+                            chart-image: container-cpu-chart;
+                        }
+
+                        // Memory Chart
+                        ChartContainer {
+                            title: "Uso de Memória";
+                            current-value: container-memory-usage;
+                            chart-color: #10b981;
+                            chart-image: container-memory-chart;
+                        }
+
+                        // Network stats
+                        Rectangle {
+                            background: #374151;
+                            border-radius: 8px;
+                            height: 80px;
+                            VerticalLayout {
+                                alignment: center;
+
+                                HorizontalLayout {
+                                    padding: 16px;
+                                    spacing: 32px;
+                                    alignment: space-around;
+
+                                    VerticalLayout {
+                                        spacing: 4px;
+                                        alignment: center;
+
+                                        Text {
+                                            text: "RX (Download)";
+                                            font-size: 14px;
+                                            color: #9ca3af;
+                                            font-weight: 600;
+                                        }
+
+                                        Text {
+                                            text: container-network-rx;
+                                            font-size: 18px;
+                                            color: #f59e0b;
+                                            font-weight: 700;
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        width: 2px;
+                                        background: #6b7280;
+                                    }
+
+                                    VerticalLayout {
+                                        spacing: 4px;
+                                        alignment: center;
+
+                                        Text {
+                                            text: "TX (Upload)";
+                                            font-size: 14px;
+                                            color: #9ca3af;
+                                            font-weight: 600;
+                                        }
+
+                                        Text {
+                                            text: container-network-tx;
+                                            font-size: 18px;
+                                            color: #ef4444;
+                                            font-weight: 700;
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
 
+            // Seção de Logs (recolhível)
             Rectangle {
-                background: #1a1a1a;
-                border-radius: 4px;
-                border-width: 1px;
-                border-color: #464747;
-                vertical-stretch: 1;
+                background: #2e3030;
+                border-radius: 8px;
+                height: logs-expanded ? 900px : 60px;
 
-                Flickable {
-                    width: 100%;
-                    height: 100%;
-                    viewport-width: parent.width;
-                    viewport-height: max(parent.height, logs-text.preferred-height + 24px);
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 12px;
 
-                    logs-text := Text {
-                        text: container-logs == "" ? "Nenhum log disponível ou container não está rodando" : container-logs;
-                        color: #ffffff;
-                        font-family: "monospace";
-                        font-size: 12px;
-                        width: parent.width - 32px;
-                        x: 16px;
-                        y: 16px;
-                        wrap: word-wrap;
-                        vertical-alignment: top;
-                        horizontal-alignment: left;
+                    // Header da seção de logs (sempre visível)
+                    Rectangle {
+                        background: logs-expanded ? #374151 : transparent;
+                        border-radius: 8px;
+
+                        TouchArea {
+                            clicked => {
+                                toggle-logs();
+                            }
+                        }
+
+                        HorizontalLayout {
+                            height: 60px;
+                            padding: 8px;
+                            spacing: 12px;
+                            alignment: space-between;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+                                alignment: start;
+
+                                Text {
+                                    text: logs-expanded ? "▼" : "▶";
+                                    color: #ffffff;
+                                    font-size: 16px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                }
+
+                                Text {
+                                    text: "Logs do Container";
+                                    color: #ffffff;
+                                    font-size: 18px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            VerticalLayout {
+
+                                alignment: center;
+                                if logs-expanded: Button {
+                                    text: logs-loading ? "Carregando..." : "↑ Carregar Mais";
+                                    size_w: 140px;
+                                    size_h: 28px;
+                                    bg: logs-loading ? #6b7280 : #374151;
+                                    clicked => {
+                                        if (!logs-loading) {
+                                            load-more-logs();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Conteúdo expandido dos logs
+                    if logs-expanded: Rectangle {
+                        background: #1a1a1a;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: #464747;
+                        vertical-stretch: 1;
+
+                        Flickable {
+                            width: 100%;
+                            height: 100%;
+                            viewport-width: parent.width;
+                            viewport-height: max(parent.height, logs-text.preferred-height + 32px);
+
+                            logs-text := Text {
+                                text: container-logs == "" ? "Nenhum log disponível ou container não está rodando" : container-logs;
+                                color: #ffffff;
+                                font-family: "monospace";
+                                font-size: 12px;
+                                width: parent.width - 32px;
+                                x: 16px;
+                                y: 16px;
+                                wrap: word-wrap;
+                                vertical-alignment: top;
+                                horizontal-alignment: left;
+                            }
+                        }
                     }
                 }
             }

@@ -85,6 +85,47 @@ impl ChartData {
     }
 }
 
+// Dados dos gráficos para container específico
+struct ContainerChartData {
+    cpu_points: VecDeque<ChartPoint>,
+    memory_points: VecDeque<ChartPoint>,
+    last_update: Instant,
+}
+
+impl ContainerChartData {
+    fn new() -> Self {
+        Self {
+            cpu_points: VecDeque::new(),
+            memory_points: VecDeque::new(),
+            last_update: Instant::now() - Duration::from_secs(2),
+        }
+    }
+
+    fn should_update(&self) -> bool {
+        self.last_update.elapsed().as_millis() >= 500 // 500ms entre atualizações (mesmo que dashboard)
+    }
+
+    fn add_cpu_point(&mut self, value: f32) {
+        let time = chrono::Local::now().format("%H:%M:%S").to_string();
+        self.cpu_points.push_back(ChartPoint { time, value });
+
+        if self.cpu_points.len() > 60 {
+            self.cpu_points.pop_front();
+        }
+        self.last_update = Instant::now();
+    }
+
+    fn add_memory_point(&mut self, value: f32) {
+        let time = chrono::Local::now().format("%H:%M:%S").to_string();
+        self.memory_points.push_back(ChartPoint { time, value });
+
+        if self.memory_points.len() > 60 {
+            self.memory_points.pop_front();
+        }
+        self.last_update = Instant::now();
+    }
+}
+
 // Função principal assíncrona
 #[tokio::main]
 async fn main() -> Result<(), slint::PlatformError> {
@@ -99,21 +140,47 @@ async fn main() -> Result<(), slint::PlatformError> {
     let mut memory_chart_renderer = ChartRenderer::new(800, 256);
     memory_chart_renderer.set_line_color([16, 185, 129]);
 
+    // Configura renderizadores para gráficos de container específico (mesmo tamanho do dashboard)
+    let mut container_cpu_chart_renderer = ChartRenderer::new(800, 256);
+    container_cpu_chart_renderer.set_line_color([59, 130, 246]);
+
+    let mut container_memory_chart_renderer = ChartRenderer::new(800, 256);
+    container_memory_chart_renderer.set_line_color([16, 185, 129]);
+
     let app_state = AppState {
         chart_data: Arc::new(std::sync::Mutex::new(ChartData::new())),
         cpu_chart_renderer: Arc::new(std::sync::Mutex::new(cpu_chart_renderer)),
         memory_chart_renderer: Arc::new(std::sync::Mutex::new(memory_chart_renderer)),
     };
 
+    // Dados e renderizadores para gráficos de container
+    let container_chart_data = Arc::new(std::sync::Mutex::new(ContainerChartData::new()));
+    let container_cpu_renderer = Arc::new(std::sync::Mutex::new(container_cpu_chart_renderer));
+    let container_memory_renderer =
+        Arc::new(std::sync::Mutex::new(container_memory_chart_renderer));
+
     // Configura interface Docker e inicia timer
-    let _timer = setup_docker_ui(ui.as_weak(), app_state).await;
+    let _timer = setup_docker_ui(
+        ui.as_weak(),
+        app_state,
+        container_chart_data,
+        container_cpu_renderer,
+        container_memory_renderer,
+    )
+    .await;
 
     // Executa aplicação
     ui.run()
 }
 
 // Configura interface Docker e sistema de monitoramento
-async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer {
+async fn setup_docker_ui(
+    ui_weak: Weak<AppWindow>,
+    app_state: AppState,
+    container_chart_data: Arc<std::sync::Mutex<ContainerChartData>>,
+    container_cpu_renderer: Arc<std::sync::Mutex<ChartRenderer>>,
+    container_memory_renderer: Arc<std::sync::Mutex<ChartRenderer>>,
+) -> Timer {
     let ui = ui_weak.upgrade().unwrap();
 
     let timer = Timer::default();
@@ -158,13 +225,15 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
                 Arc::new(move |containers| {
                     if let Some(ui) = ui_weak_container.upgrade() {
                         update_ui_containers_from_slint(&ui, &containers);
-                        
+
                         // Se estivermos na tela de detalhes, atualiza o container selecionado
                         if ui.get_current_screen() == 5 {
                             let selected = ui.get_selected_container();
                             if !selected.name.is_empty() {
                                 // Procura o container atualizado na lista
-                                if let Some(updated_container) = containers.iter().find(|c| c.name == selected.name) {
+                                if let Some(updated_container) =
+                                    containers.iter().find(|c| c.name == selected.name)
+                                {
                                     // Cria um novo ContainerData com os dados atualizados
                                     ui.set_selected_container(ContainerData {
                                         name: updated_container.name.clone(),
@@ -191,6 +260,15 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
 
             // Configura timer para logs de container
             setup_container_logs_timer(ui_weak.clone(), docker_manager_shared.clone());
+
+            // Configura timer para stats de container
+            setup_container_stats_timer(
+                ui_weak.clone(),
+                docker_manager_shared.clone(),
+                container_chart_data,
+                container_cpu_renderer,
+                container_memory_renderer,
+            );
 
             // Configura gerenciador de imagens UI
             let image_ui_manager = Arc::new(tokio::sync::Mutex::new(ImageUIManager::new(
@@ -1207,43 +1285,51 @@ fn format_memory_display(percentage: f64, usage: u64, limit: u64) -> String {
 }
 
 // Configura timer para atualizar logs do container selecionado
-fn setup_container_logs_timer(ui_weak: Weak<AppWindow>, docker_manager: Arc<tokio::sync::Mutex<DockerManager>>) {
+fn setup_container_logs_timer(
+    ui_weak: Weak<AppWindow>,
+    docker_manager: Arc<tokio::sync::Mutex<DockerManager>>,
+) {
     let timer = Timer::default();
-    
+
     timer.start(TimerMode::Repeated, Duration::from_secs(1), move || {
         let ui_weak_clone = ui_weak.clone();
         let docker_manager_clone = docker_manager.clone();
-        
+
         // Coleta as informações necessárias antes do tokio::spawn
-        let (current_screen, container_name, lines_loaded) = if let Some(ui) = ui_weak_clone.upgrade() {
-            let screen = ui.get_current_screen();
-            let selected = ui.get_selected_container();
-            let lines = ui.get_logs_lines_loaded();
-            (screen, selected.name.to_string(), lines)
-        } else {
-            return; // Se não conseguir fazer upgrade, sai
-        };
-        
+        let (current_screen, container_name, lines_loaded) =
+            if let Some(ui) = ui_weak_clone.upgrade() {
+                let screen = ui.get_current_screen();
+                let selected = ui.get_selected_container();
+                let lines = ui.get_logs_lines_loaded();
+                (screen, selected.name.to_string(), lines)
+            } else {
+                return; // Se não conseguir fazer upgrade, sai
+            };
+
         // Só busca logs se estivermos na tela de detalhes (tela 5)
         if current_screen == 5 && !container_name.is_empty() {
             tokio::spawn(async move {
                 let manager = docker_manager_clone.lock().await;
-                
+
                 // Usa o número de linhas já carregadas
-                let tail_lines = if lines_loaded > 50 { 
-                    Some(lines_loaded.to_string()) 
-                } else { 
-                    None 
+                let tail_lines = if lines_loaded > 50 {
+                    Some(lines_loaded.to_string())
+                } else {
+                    None
                 };
-                
-                match manager.get_container_logs(&container_name, tail_lines).await {
+
+                match manager
+                    .get_container_logs(&container_name, tail_lines)
+                    .await
+                {
                     Ok(logs) => {
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_clone.upgrade() {
                                 ui.set_container_logs(logs.into());
                             }
-                        }).unwrap();
-                    },
+                        })
+                        .unwrap();
+                    }
                     Err(_) => {
                         // Ignora erros de logs para não poluir interface
                     }
@@ -1251,18 +1337,21 @@ fn setup_container_logs_timer(ui_weak: Weak<AppWindow>, docker_manager: Arc<toki
             });
         }
     });
-    
+
     // Mantém o timer vivo
     std::mem::forget(timer);
 }
 
 // Configura callback para carregar mais logs
-fn setup_load_more_logs_callback(ui_weak: Weak<AppWindow>, docker_manager: Arc<tokio::sync::Mutex<DockerManager>>) {
+fn setup_load_more_logs_callback(
+    ui_weak: Weak<AppWindow>,
+    docker_manager: Arc<tokio::sync::Mutex<DockerManager>>,
+) {
     if let Some(ui) = ui_weak.upgrade() {
         ui.on_load_more_logs(move || {
             let ui_weak_clone = ui_weak.clone();
             let docker_manager_clone = docker_manager.clone();
-            
+
             // Pega as informações antes do spawn
             let (container_name, current_lines) = if let Some(ui) = ui_weak_clone.upgrade() {
                 let selected = ui.get_selected_container();
@@ -1271,24 +1360,27 @@ fn setup_load_more_logs_callback(ui_weak: Weak<AppWindow>, docker_manager: Arc<t
             } else {
                 return;
             };
-            
+
             if container_name.is_empty() {
                 return;
             }
-            
+
             // Define loading state
             if let Some(ui) = ui_weak_clone.upgrade() {
                 ui.set_logs_loading(true);
             }
-            
+
             // Incrementa o número de linhas a buscar
             let new_lines_count = current_lines + 50;
-            
+
             tokio::spawn(async move {
                 let manager = docker_manager_clone.lock().await;
-                
+
                 // Busca mais 50 linhas
-                match manager.get_container_logs(&container_name, Some(new_lines_count.to_string())).await {
+                match manager
+                    .get_container_logs(&container_name, Some(new_lines_count.to_string()))
+                    .await
+                {
                     Ok(new_logs) => {
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_clone.upgrade() {
@@ -1296,17 +1388,122 @@ fn setup_load_more_logs_callback(ui_weak: Weak<AppWindow>, docker_manager: Arc<t
                                 ui.set_logs_lines_loaded(new_lines_count);
                                 ui.set_logs_loading(false);
                             }
-                        }).unwrap();
+                        })
+                        .unwrap();
                     }
                     Err(_) => {
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_clone.upgrade() {
                                 ui.set_logs_loading(false);
                             }
-                        }).unwrap();
+                        })
+                        .unwrap();
                     }
                 }
             });
         });
     }
+}
+
+// Configura timer para atualizar stats do container selecionado
+fn setup_container_stats_timer(
+    ui_weak: Weak<AppWindow>,
+    docker_manager: Arc<tokio::sync::Mutex<DockerManager>>,
+    container_chart_data: Arc<std::sync::Mutex<ContainerChartData>>,
+    container_cpu_renderer: Arc<std::sync::Mutex<ChartRenderer>>,
+    container_memory_renderer: Arc<std::sync::Mutex<ChartRenderer>>,
+) {
+    let timer = Timer::default();
+
+    timer.start(TimerMode::Repeated, Duration::from_secs(1), move || {
+        let ui_weak_clone = ui_weak.clone();
+        let docker_manager_clone = docker_manager.clone();
+        let chart_data_clone = container_chart_data.clone();
+        let cpu_renderer_clone = container_cpu_renderer.clone();
+        let memory_renderer_clone = container_memory_renderer.clone();
+
+        // Coleta as informações necessárias antes do tokio::spawn
+        let (current_screen, container_name) = if let Some(ui) = ui_weak_clone.upgrade() {
+            let screen = ui.get_current_screen();
+            let selected = ui.get_selected_container();
+            (screen, selected.name.to_string())
+        } else {
+            return; // Se não conseguir fazer upgrade, sai
+        };
+
+        // Só busca stats se estivermos na tela de detalhes (tela 5) e container em execução
+        if current_screen == 5 && !container_name.is_empty() {
+            tokio::spawn(async move {
+                let mut manager = docker_manager_clone.lock().await;
+
+                match manager.get_single_container_stats(&container_name).await {
+                    Ok((cpu, cpu_total, memory, rx, tx)) => {
+                        // Extrai percentual de memória do string
+                        let memory_percentage = memory
+                            .split('%')
+                            .next()
+                            .and_then(|s| s.parse::<f32>().ok())
+                            .unwrap_or(0.0);
+
+                        // Atualiza dados dos gráficos
+                        if let Ok(mut chart_data) = chart_data_clone.try_lock() {
+                            if chart_data.should_update() {
+                                chart_data.add_cpu_point(cpu as f32);
+                                chart_data.add_memory_point(memory_percentage);
+                            }
+                        }
+
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_clone.upgrade() {
+                                ui.set_container_cpu_usage(format!("{:.1}%", cpu).into());
+                                ui.set_container_cpu_total(format!("{}%", cpu_total * 100).into());
+                                ui.set_container_memory_usage(memory.into());
+                                ui.set_container_network_rx(rx.into());
+                                ui.set_container_network_tx(tx.into());
+
+                                // Gera gráficos dentro do event loop para evitar problemas de threading
+                                if let (Ok(mut chart_data), Ok(renderer)) =
+                                    (chart_data_clone.try_lock(), cpu_renderer_clone.try_lock())
+                                {
+                                    let cpu_chart = renderer.render_line_chart(
+                                        &chart_data.cpu_points.make_contiguous(),
+                                        100.0,
+                                    );
+                                    ui.set_container_cpu_chart(cpu_chart);
+                                }
+
+                                if let (Ok(mut chart_data), Ok(renderer)) = (
+                                    chart_data_clone.try_lock(),
+                                    memory_renderer_clone.try_lock(),
+                                ) {
+                                    let memory_chart = renderer.render_line_chart(
+                                        &chart_data.memory_points.make_contiguous(),
+                                        100.0,
+                                    );
+                                    ui.set_container_memory_chart(memory_chart);
+                                }
+                            }
+                        })
+                        .unwrap();
+                    }
+                    Err(_) => {
+                        // Container pode estar parado, define valores padrão
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_clone.upgrade() {
+                                ui.set_container_cpu_usage("0.0%".into());
+                                ui.set_container_cpu_total("0%".into());
+                                ui.set_container_memory_usage("N/A".into());
+                                ui.set_container_network_rx("0 B/s".into());
+                                ui.set_container_network_tx("0 B/s".into());
+                            }
+                        })
+                        .unwrap();
+                    }
+                }
+            });
+        }
+    });
+
+    // Mantém o timer vivo
+    std::mem::forget(timer);
 }

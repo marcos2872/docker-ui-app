@@ -106,6 +106,15 @@ export component AppWindow inherits Window {
     in-out property <string> container-logs: "";
     in-out property <bool> logs-loading: false;
     in-out property <int> logs-lines-loaded: 50;
+    in-out property <string> container-cpu-usage: "0.0%";
+    in-out property <string> container-cpu-total: "0%";
+    in-out property <string> container-memory-usage: "0 MB";
+    in-out property <string> container-network-rx: "0 KB/s";
+    in-out property <string> container-network-tx: "0 KB/s";
+    in-out property <image> container-cpu-chart;
+    in-out property <image> container-memory-chart;
+    in-out property <bool> metrics-expanded: false;
+    in-out property <bool> logs-expanded: false;
 
     // Propriedades das imagens
     in-out property <[ImageData]> images;
@@ -252,14 +261,14 @@ export component AppWindow inherits Window {
             }
 
             // Outras telas da aplicação
-            if root.current-screen == 1: ContainersList { 
+            if root.current-screen == 1: ContainersList {
                 containers: root.containers;
                 search-text: root.search-text;
                 status-filter: root.status-filter;
                 container-loading: root.container-loading;
                 container-error: root.container-error;
                 container-success: root.container-success;
-                
+
                 search-changed(text) => {
                     root.search-text = text;
                     root.search-changed(text);
@@ -323,15 +332,32 @@ export component AppWindow inherits Window {
                 container-success: root.container-success;
                 container-logs: root.container-logs;
                 logs-loading: root.logs-loading;
+                container-cpu-usage: root.container-cpu-usage;
+                container-cpu-total: root.container-cpu-total;
+                container-memory-usage: root.container-memory-usage;
+                container-network-rx: root.container-network-rx;
+                container-network-tx: root.container-network-tx;
+                container-cpu-chart: root.container-cpu-chart;
+                container-memory-chart: root.container-memory-chart;
+                metrics-expanded: root.metrics-expanded;
+                logs-expanded: root.logs-expanded;
                 back-clicked => {
                     root.current-screen = 1;
                     root.logs-lines-loaded = 50; // Reset quando volta para lista
+                    root.metrics-expanded = false; // Reset metrics
+                    root.logs-expanded = false; // Reset logs
                 }
                 container-action(action) => {
                     root.container-action(root.selected-container.name, action);
                 }
                 load-more-logs => {
                     root.load-more-logs();
+                }
+                toggle-metrics => {
+                    root.metrics-expanded = !root.metrics-expanded;
+                }
+                toggle-logs => {
+                    root.logs-expanded = !root.logs-expanded;
                 }
             }
         }
