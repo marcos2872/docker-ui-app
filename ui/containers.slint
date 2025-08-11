@@ -49,10 +49,17 @@ component ContainerItem inherits Rectangle {
     in property <ContainerData> container;
     in property <string> loading-action;
     callback container-action(string);
+    callback view-details();
 
     background: #2e3030;
     border-radius: 8px;
     height: 80px;
+
+    TouchArea {
+        clicked => {
+            view-details();
+        }
+    }
 
     HorizontalLayout {
         padding: 16px;
@@ -61,6 +68,7 @@ component ContainerItem inherits Rectangle {
 
         HorizontalLayout {
             spacing: 16px;
+
             StatusIndicator {
                 status: container.status;
             }
@@ -243,6 +251,7 @@ export component ContainersList inherits VerticalLayout {
     callback search-changed(string);
     callback filter-changed(string);
     callback container-action(string, string);
+    callback view-container-details(ContainerData);
 
     padding: 24px;
     spacing: 24px;
@@ -403,6 +412,9 @@ export component ContainersList inherits VerticalLayout {
                 loading-action: container-loading;
                 container-action(action) => {
                     container-action(container.name, action);
+                }
+                view-details => {
+                    view-container-details(container);
                 }
             }
         }

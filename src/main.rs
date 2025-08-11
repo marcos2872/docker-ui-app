@@ -158,6 +158,24 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
                 Arc::new(move |containers| {
                     if let Some(ui) = ui_weak_container.upgrade() {
                         update_ui_containers_from_slint(&ui, &containers);
+                        
+                        // Se estivermos na tela de detalhes, atualiza o container selecionado
+                        if ui.get_current_screen() == 5 {
+                            let selected = ui.get_selected_container();
+                            if !selected.name.is_empty() {
+                                // Procura o container atualizado na lista
+                                if let Some(updated_container) = containers.iter().find(|c| c.name == selected.name) {
+                                    // Cria um novo ContainerData com os dados atualizados
+                                    ui.set_selected_container(ContainerData {
+                                        name: updated_container.name.clone(),
+                                        image: updated_container.image.clone(),
+                                        status: updated_container.status.clone(),
+                                        ports: updated_container.ports.clone(),
+                                        created: updated_container.created.clone(),
+                                    });
+                                }
+                            }
+                        }
                     }
                 }),
             );
@@ -167,6 +185,12 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
 
             // Configura callbacks de container
             setup_container_callbacks(ui_weak.clone(), container_ui_manager.clone());
+
+            // Configura callback para carregar mais logs
+            setup_load_more_logs_callback(ui_weak.clone(), docker_manager_shared.clone());
+
+            // Configura timer para logs de container
+            setup_container_logs_timer(ui_weak.clone(), docker_manager_shared.clone());
 
             // Configura gerenciador de imagens UI
             let image_ui_manager = Arc::new(tokio::sync::Mutex::new(ImageUIManager::new(
@@ -1179,5 +1203,110 @@ fn format_memory_display(percentage: f64, usage: u64, limit: u64) -> String {
             usage as f64 / MB as f64,
             limit as f64 / MB as f64
         )
+    }
+}
+
+// Configura timer para atualizar logs do container selecionado
+fn setup_container_logs_timer(ui_weak: Weak<AppWindow>, docker_manager: Arc<tokio::sync::Mutex<DockerManager>>) {
+    let timer = Timer::default();
+    
+    timer.start(TimerMode::Repeated, Duration::from_secs(1), move || {
+        let ui_weak_clone = ui_weak.clone();
+        let docker_manager_clone = docker_manager.clone();
+        
+        // Coleta as informações necessárias antes do tokio::spawn
+        let (current_screen, container_name, lines_loaded) = if let Some(ui) = ui_weak_clone.upgrade() {
+            let screen = ui.get_current_screen();
+            let selected = ui.get_selected_container();
+            let lines = ui.get_logs_lines_loaded();
+            (screen, selected.name.to_string(), lines)
+        } else {
+            return; // Se não conseguir fazer upgrade, sai
+        };
+        
+        // Só busca logs se estivermos na tela de detalhes (tela 5)
+        if current_screen == 5 && !container_name.is_empty() {
+            tokio::spawn(async move {
+                let manager = docker_manager_clone.lock().await;
+                
+                // Usa o número de linhas já carregadas
+                let tail_lines = if lines_loaded > 50 { 
+                    Some(lines_loaded.to_string()) 
+                } else { 
+                    None 
+                };
+                
+                match manager.get_container_logs(&container_name, tail_lines).await {
+                    Ok(logs) => {
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_clone.upgrade() {
+                                ui.set_container_logs(logs.into());
+                            }
+                        }).unwrap();
+                    },
+                    Err(_) => {
+                        // Ignora erros de logs para não poluir interface
+                    }
+                }
+            });
+        }
+    });
+    
+    // Mantém o timer vivo
+    std::mem::forget(timer);
+}
+
+// Configura callback para carregar mais logs
+fn setup_load_more_logs_callback(ui_weak: Weak<AppWindow>, docker_manager: Arc<tokio::sync::Mutex<DockerManager>>) {
+    if let Some(ui) = ui_weak.upgrade() {
+        ui.on_load_more_logs(move || {
+            let ui_weak_clone = ui_weak.clone();
+            let docker_manager_clone = docker_manager.clone();
+            
+            // Pega as informações antes do spawn
+            let (container_name, current_lines) = if let Some(ui) = ui_weak_clone.upgrade() {
+                let selected = ui.get_selected_container();
+                let lines = ui.get_logs_lines_loaded();
+                (selected.name.to_string(), lines)
+            } else {
+                return;
+            };
+            
+            if container_name.is_empty() {
+                return;
+            }
+            
+            // Define loading state
+            if let Some(ui) = ui_weak_clone.upgrade() {
+                ui.set_logs_loading(true);
+            }
+            
+            // Incrementa o número de linhas a buscar
+            let new_lines_count = current_lines + 50;
+            
+            tokio::spawn(async move {
+                let manager = docker_manager_clone.lock().await;
+                
+                // Busca mais 50 linhas
+                match manager.get_container_logs(&container_name, Some(new_lines_count.to_string())).await {
+                    Ok(new_logs) => {
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_clone.upgrade() {
+                                ui.set_container_logs(new_logs.into());
+                                ui.set_logs_lines_loaded(new_lines_count);
+                                ui.set_logs_loading(false);
+                            }
+                        }).unwrap();
+                    }
+                    Err(_) => {
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_clone.upgrade() {
+                                ui.set_logs_loading(false);
+                            }
+                        }).unwrap();
+                    }
+                }
+            });
+        });
     }
 }

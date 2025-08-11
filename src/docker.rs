@@ -8,6 +8,7 @@ use bollard::{
         StatsOptions,
     },
 };
+use chrono;
 use futures_util::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -783,7 +784,7 @@ impl DockerManager {
                     // Usa dados do cache interno, mas verifica se são válidos
                     let cache_cpu_delta = cpu_total.saturating_sub(prev_stats.cpu_total);
                     let cache_system_delta = system_total.saturating_sub(prev_stats.system_total);
-                    
+
                     // Se o delta do cache é muito pequeno, usa precpu_stats como fallback
                     if cache_system_delta > 0 && cache_cpu_delta <= cache_system_delta * 10 {
                         cpu_delta = cache_cpu_delta;
@@ -845,7 +846,7 @@ impl DockerManager {
                         usage_cpu: 0.0,
                     };
                 }
-                
+
                 // Se cpu_delta for 0, significa que não houve uso de CPU nesse período
                 if cpu_delta == 0 {
                     return CpuCalculate {
@@ -1050,4 +1051,122 @@ impl DockerManager {
     //     println!("🔄 Container {} reiniciado com sucesso!", container_id);
     //     Ok(())
     // }
+
+    // Obter logs de um container com paginação
+    pub async fn get_container_logs(
+        &self,
+        container_name: &str,
+        tail_lines: Option<String>,
+    ) -> Result<String> {
+        use bollard::query_parameters::LogsOptions;
+        use futures_util::StreamExt;
+
+        let logs_options = LogsOptions {
+            stdout: true,
+            stderr: true,
+            tail: tail_lines.unwrap_or_else(|| "50".to_string()), // Padrão: últimas 50 linhas
+            timestamps: true,
+            ..Default::default()
+        };
+
+        let mut logs_stream = self.docker.logs(container_name, Some(logs_options));
+
+        let mut logs = String::new();
+        while let Some(log_result) = logs_stream.next().await {
+            match log_result {
+                Ok(log_output) => {
+                    logs.push_str(&log_output.to_string());
+                }
+                Err(_) => break,
+            }
+        }
+
+        // Processa e formata os logs com timestamp
+        let formatted_logs = logs
+            .lines()
+            .filter_map(|line| {
+                if line.len() > 30 {
+                    // Tenta extrair o timestamp (formato: 2023-01-01T00:00:00.000000000Z)
+                    let timestamp_str = &line[0..30];
+                    let message = if line.len() > 31 { &line[31..] } else { "" };
+
+                    // Parse do timestamp ISO 8601 usando chrono
+                    if let Ok(utc_time) = timestamp_str.parse::<chrono::DateTime<chrono::Utc>>() {
+                        let local_time = utc_time.with_timezone(&chrono::Local);
+                        let formatted_time = local_time.format("%H:%M:%S").to_string();
+                        Some(format!("[{}] {}", formatted_time, message))
+                    } else {
+                        // Se não conseguir parsear timestamp, retorna a linha original sem timestamp
+                        Some(message.to_string())
+                    }
+                } else {
+                    // Linha muito curta, provavelmente não tem timestamp
+                    Some(line.to_string())
+                }
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        Ok(if formatted_logs.trim().is_empty() {
+            "Nenhum log disponível".to_string()
+        } else {
+            formatted_logs
+        })
+    }
+
+    // Obter logs anteriores de um container (para infinite scroll)
+    pub async fn get_container_logs_before(
+        &self,
+        container_name: &str,
+        before_timestamp: &str,
+        lines: u32,
+    ) -> Result<String> {
+        use bollard::query_parameters::LogsOptions;
+        use futures_util::StreamExt;
+
+        let logs_options = LogsOptions {
+            stdout: true,
+            stderr: true,
+            until: before_timestamp.parse::<i32>().unwrap_or(0), // Logs antes deste timestamp
+            tail: lines.to_string(),
+            timestamps: true,
+            ..Default::default()
+        };
+
+        let mut logs_stream = self.docker.logs(container_name, Some(logs_options));
+
+        let mut logs = String::new();
+        while let Some(log_result) = logs_stream.next().await {
+            match log_result {
+                Ok(log_output) => {
+                    logs.push_str(&log_output.to_string());
+                }
+                Err(_) => break,
+            }
+        }
+
+        // Processa e formata os logs com timestamp
+        let formatted_logs = logs
+            .lines()
+            .filter_map(|line| {
+                if line.len() > 30 {
+                    let timestamp_str = &line[0..30];
+                    let message = if line.len() > 31 { &line[31..] } else { "" };
+
+                    if let Ok(utc_time) = timestamp_str.parse::<chrono::DateTime<chrono::Utc>>() {
+                        let local_time = utc_time.with_timezone(&chrono::Local);
+                        let formatted_time = local_time.format("%H:%M:%S").to_string();
+                        Some(format!("[{}] {}", formatted_time, message))
+                    } else {
+                        Some(message.to_string())
+                    }
+                } else {
+                    Some(line.to_string())
+                }
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        Ok(formatted_logs)
+    }
 }

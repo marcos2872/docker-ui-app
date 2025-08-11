@@ -1,0 +1,367 @@
+struct ContainerData {
+    name: string,
+    image: string,
+    status: string,
+    ports: string,
+    created: string,
+}
+
+component Button inherits Rectangle {
+    in property <string> text;
+    in property <bool> active: false;
+    in property <length> size_w: 64px;
+    in property <length> size_h: 32px;
+    in property <brush> bg: #2e3030;
+    callback clicked <=> touch.clicked;
+
+    height: size_h;
+    width: size_w;
+    background: root.active ? #0ea5e9 : bg;
+    border-radius: 6px;
+    border-width: root.active ? 2px : 0px;
+    border-color: #0ea5e9;
+
+    touch := TouchArea { }
+
+    Text {
+        text: root.text;
+        color: #ffffff;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 14px;
+        x: 8px;
+        y: 0px;
+        width: parent.width - 16px;
+        height: parent.height;
+    }
+}
+
+export component ContainerDetails inherits VerticalLayout {
+    in property <ContainerData> container;
+    in property <string> loading-action;
+    in property <string> container-error;
+    in property <string> container-success;
+    in property <string> container-logs;
+    in property <bool> logs-loading: false;
+
+    callback back-clicked();
+    callback container-action(string);
+    callback load-more-logs();
+
+    padding: 24px;
+    spacing: 24px;
+
+    HorizontalLayout {
+        alignment: space-between;
+        height: 40px;
+
+        VerticalLayout {
+            alignment: center;
+            HorizontalLayout {
+                spacing: 12px;
+
+                Button {
+                    text: "← Voltar";
+                    size_w: 100px;
+                    clicked => {
+                        back-clicked();
+                    }
+                }
+
+                Text {
+                    text: "Detalhes do Container";
+                    font-size: 24px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Mensagens de feedback
+        if container-success != "": Rectangle {
+            height: 40px;
+            min-width: 200px;
+            background: #065f46;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #10b981;
+
+            VerticalLayout {
+                alignment: center;
+                padding-left: 12px;
+                padding-right: 12px;
+
+                Text {
+                    text: container-success;
+                    color: #d1fae5;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+
+        if container-error != "": Rectangle {
+            height: 40px;
+            min-width: 200px;
+            background: #7f1d1d;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #ef4444;
+
+            VerticalLayout {
+                alignment: center;
+                padding-left: 12px;
+                padding-right: 12px;
+
+                Text {
+                    text: container-error;
+                    color: #fecaca;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        background: #2e3030;
+        border-radius: 8px;
+        height: 300px;
+        vertical-stretch: 0;
+
+        VerticalLayout {
+            padding: 24px;
+            spacing: 12px;
+
+            Text {
+                text: container.name;
+                font-size: 28px;
+                font-weight: 700;
+                color: #ffffff;
+            }
+
+            HorizontalLayout {
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Status:";
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: #9ca3af;
+                        min-width: 100px;
+                    }
+
+                    Text {
+                        text: "Imagem:";
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: #9ca3af;
+                        min-width: 100px;
+                    }
+
+                    Text {
+                        text: "Portas:";
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: #9ca3af;
+                        min-width: 100px;
+                    }
+
+                    Text {
+                        text: "Criado:";
+                        font-size: 16px;
+                        font-weight: 600;
+                        color: #9ca3af;
+                        min-width: 100px;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: container.status;
+                        font-size: 16px;
+                        color: container.status == "running" ? #10b981 : container.status == "exited" ? #ef4444 : container.status == "paused" ? #f59e0b : #6b7280;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: container.image;
+                        font-size: 16px;
+                        color: #ffffff;
+                    }
+
+                    Text {
+                        text: container.ports == "" ? "Nenhuma porta exposta" : container.ports;
+                        font-size: 16px;
+                        color: #ffffff;
+                    }
+
+                    Text {
+                        text: container.created;
+                        font-size: 16px;
+                        color: #ffffff;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+
+                if container.status == "running": HorizontalLayout {
+                    spacing: 12px;
+
+                    Button {
+                        text: loading-action == container.name + "_stop" ? "..." : "Parar";
+                        bg: loading-action == container.name + "_stop" ? #6b7280 : #ef4444;
+                        size_w: 100px;
+                        clicked => {
+                            if (loading-action == "") {
+                                container-action("stop");
+                            }
+                        }
+                    }
+
+                    Button {
+                        text: loading-action == container.name + "_pause" ? "..." : "Pausar";
+                        bg: loading-action == container.name + "_pause" ? #6b7280 : #f59e0b;
+                        size_w: 100px;
+                        clicked => {
+                            if (loading-action == "") {
+                                container-action("pause");
+                            }
+                        }
+                    }
+
+                    Button {
+                        text: loading-action == container.name + "_restart" ? "..." : "Reiniciar";
+                        bg: loading-action == container.name + "_restart" ? #6b7280 : #0ea5e9;
+                        size_w: 100px;
+                        clicked => {
+                            if (loading-action == "") {
+                                container-action("restart");
+                            }
+                        }
+                    }
+                }
+
+                if container.status == "exited": HorizontalLayout {
+                    spacing: 12px;
+
+                    Button {
+                        text: loading-action == container.name + "_start" ? "..." : "Iniciar";
+                        bg: loading-action == container.name + "_start" ? #6b7280 : #10b981;
+                        size_w: 100px;
+                        clicked => {
+                            if (loading-action == "") {
+                                container-action("start");
+                            }
+                        }
+                    }
+
+                    Button {
+                        text: loading-action == container.name + "_remove" ? "..." : "Deletar";
+                        bg: loading-action == container.name + "_remove" ? #6b7280 : #ef4444;
+                        size_w: 100px;
+                        clicked => {
+                            if (loading-action == "") {
+                                container-action("remove");
+                            }
+                        }
+                    }
+                }
+
+                if container.status == "paused": HorizontalLayout {
+                    spacing: 12px;
+
+                    Button {
+                        text: loading-action == container.name + "_unpause" ? "..." : "Continuar";
+                        bg: loading-action == container.name + "_unpause" ? #6b7280 : #10b981;
+                        size_w: 100px;
+                        clicked => {
+                            if (loading-action == "") {
+                                container-action("unpause");
+                            }
+                        }
+                    }
+
+                    Button {
+                        text: loading-action == container.name + "_stop" ? "..." : "Parar";
+                        bg: loading-action == container.name + "_stop" ? #6b7280 : #ef4444;
+                        size_w: 100px;
+                        clicked => {
+                            if (loading-action == "") {
+                                container-action("stop");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        background: #2e3030;
+        border-radius: 8px;
+        vertical-stretch: 0;
+
+        VerticalLayout {
+            padding: 16px;
+            spacing: 12px;
+
+            HorizontalLayout {
+                alignment: space-between;
+
+                Text {
+                    text: "Logs do Container";
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: #ffffff;
+                    vertical-alignment: center;
+                }
+
+                Button {
+                    text: logs-loading ? "Carregando..." : "↑ Carregar Mais";
+                    size_w: 140px;
+                    size_h: 28px;
+                    bg: logs-loading ? #6b7280 : #374151;
+                    clicked => {
+                        if (!logs-loading) {
+                            load-more-logs();
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                background: #1a1a1a;
+                border-radius: 4px;
+                border-width: 1px;
+                border-color: #464747;
+                vertical-stretch: 1;
+
+                Flickable {
+                    width: 100%;
+                    height: 100%;
+                    viewport-width: parent.width;
+                    viewport-height: max(parent.height, logs-text.preferred-height + 24px);
+
+                    logs-text := Text {
+                        text: container-logs == "" ? "Nenhum log disponível ou container não está rodando" : container-logs;
+                        color: #ffffff;
+                        font-family: "monospace";
+                        font-size: 12px;
+                        width: parent.width - 32px;
+                        x: 16px;
+                        y: 16px;
+                        wrap: word-wrap;
+                        vertical-alignment: top;
+                        horizontal-alignment: left;
+                    }
+                }
+            }
+        }
+    }
+}

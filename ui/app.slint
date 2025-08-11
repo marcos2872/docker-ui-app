@@ -1,5 +1,6 @@
 import { DashboardView } from "dashboard.slint";
 import { ContainersList } from "containers.slint";
+import { ContainerDetails } from "container-details.slint";
 import { ImagesList } from "images.slint";
 import { NetworksList } from "network.slint";
 import { VolumesList } from "volumes.slint";
@@ -101,6 +102,10 @@ export component AppWindow inherits Window {
     in-out property <string> container-loading: "";
     in-out property <string> container-error: "";
     in-out property <string> container-success: "";
+    in-out property <ContainerData> selected-container;
+    in-out property <string> container-logs: "";
+    in-out property <bool> logs-loading: false;
+    in-out property <int> logs-lines-loaded: 50;
 
     // Propriedades das imagens
     in-out property <[ImageData]> images;
@@ -134,6 +139,8 @@ export component AppWindow inherits Window {
     callback search-changed(string);
     callback filter-changed(string);
     callback container-action(string, string);
+    callback view-container-details(ContainerData);
+    callback load-more-logs();
 
     title: "Docker UI";
     min-width: 950px;
@@ -264,6 +271,11 @@ export component AppWindow inherits Window {
                 container-action(name, action) => {
                     root.container-action(name, action);
                 }
+                view-container-details(container) => {
+                    root.selected-container = container;
+                    root.current-screen = 5;
+                    root.logs-lines-loaded = 50; // Reset para 50 linhas quando muda de container
+                }
             }
             if root.current-screen == 2: ImagesList {
                 images: root.images;
@@ -302,6 +314,24 @@ export component AppWindow inherits Window {
                 }
                 volume-action(name, action) => {
                     root.volume-action(name, action);
+                }
+            }
+            if root.current-screen == 5: ContainerDetails {
+                container: root.selected-container;
+                loading-action: root.container-loading;
+                container-error: root.container-error;
+                container-success: root.container-success;
+                container-logs: root.container-logs;
+                logs-loading: root.logs-loading;
+                back-clicked => {
+                    root.current-screen = 1;
+                    root.logs-lines-loaded = 50; // Reset quando volta para lista
+                }
+                container-action(action) => {
+                    root.container-action(root.selected-container.name, action);
+                }
+                load-more-logs => {
+                    root.load-more-logs();
                 }
             }
         }
