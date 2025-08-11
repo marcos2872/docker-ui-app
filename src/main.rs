@@ -18,10 +18,10 @@ mod list_volumes;
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
 use docker::{ContainerInfo, DockerInfo, DockerManager};
-use list_containers::{setup_container_ui_timer, ContainerUIManager, SlintContainerData};
+use list_containers::{ContainerUIManager, SlintContainerData, setup_container_ui_timer};
 use list_images::{ImageUIManager, SlintImageData};
 use list_networks::{NetworkUIManager, SlintNetworkData};
-use list_volumes::{VolumeUIManager, SlintVolumeData};
+use list_volumes::{SlintVolumeData, VolumeUIManager};
 
 // Struct Container para interface Slint
 // #[derive(Clone)]
@@ -181,10 +181,10 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
             let image_ui_manager_timer = image_ui_manager.clone();
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
-                
+
                 loop {
                     interval.tick().await;
-                    
+
                     let mut manager = image_ui_manager_timer.lock().await;
                     match manager.refresh_images().await {
                         Ok(()) => {
@@ -225,10 +225,10 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
             let network_ui_manager_timer = network_ui_manager.clone();
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
-                
+
                 loop {
                     interval.tick().await;
-                    
+
                     let mut manager = network_ui_manager_timer.lock().await;
                     match manager.refresh_networks().await {
                         Ok(()) => {
@@ -269,10 +269,10 @@ async fn setup_docker_ui(ui_weak: Weak<AppWindow>, app_state: AppState) -> Timer
             let volume_ui_manager_timer = volume_ui_manager.clone();
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
-                
+
                 loop {
                     interval.tick().await;
-                    
+
                     let mut manager = volume_ui_manager_timer.lock().await;
                     match manager.refresh_volumes().await {
                         Ok(()) => {
@@ -598,7 +598,7 @@ fn setup_container_callbacks(
 
                 let (success, error_message) = {
                     let manager = container_manager_clone.lock().await;
-                    
+
                     // Executa a ação no container
                     match manager
                         .execute_container_action(&container_name_str, &action_str)
@@ -613,14 +613,25 @@ fn setup_container_callbacks(
                 let ui_weak_result = ui_weak_clone.clone();
                 if success {
                     let success_msg = match action_str.as_str() {
-                        "start" => format!("Container '{}' iniciado com sucesso", container_name_str),
+                        "start" => {
+                            format!("Container '{}' iniciado com sucesso", container_name_str)
+                        }
                         "stop" => format!("Container '{}' parado com sucesso", container_name_str),
-                        "pause" => format!("Container '{}' pausado com sucesso", container_name_str),
-                        "unpause" => format!("Container '{}' despausado com sucesso", container_name_str),
-                        "remove" => format!("Container '{}' removido com sucesso", container_name_str),
-                        _ => format!("Ação '{}' executada com sucesso no container '{}'", action_str, container_name_str),
+                        "pause" => {
+                            format!("Container '{}' pausado com sucesso", container_name_str)
+                        }
+                        "unpause" => {
+                            format!("Container '{}' despausado com sucesso", container_name_str)
+                        }
+                        "remove" => {
+                            format!("Container '{}' removido com sucesso", container_name_str)
+                        }
+                        _ => format!(
+                            "Ação '{}' executada com sucesso no container '{}'",
+                            action_str, container_name_str
+                        ),
                     };
-                    
+
                     slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak_result.upgrade() {
                             ui.set_container_loading("".into());
@@ -629,7 +640,7 @@ fn setup_container_callbacks(
                         }
                     })
                     .unwrap();
-                    
+
                     // Timer para limpar mensagem de sucesso após 3 segundos
                     let ui_weak_timer = ui_weak_clone.clone();
                     tokio::spawn(async move {
@@ -642,7 +653,10 @@ fn setup_container_callbacks(
                         .unwrap();
                     });
                 } else if let Some(error) = error_message {
-                    let error_msg = format!("Erro ao executar '{}' no container '{}': {}", action_str, container_name_str, error);
+                    let error_msg = format!(
+                        "Erro ao executar '{}' no container '{}': {}",
+                        action_str, container_name_str, error
+                    );
                     slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak_result.upgrade() {
                             ui.set_container_loading("".into());
@@ -651,7 +665,7 @@ fn setup_container_callbacks(
                         }
                     })
                     .unwrap();
-                    
+
                     // Timer para limpar mensagem de erro após 5 segundos
                     let ui_weak_timer = ui_weak_clone.clone();
                     tokio::spawn(async move {
@@ -756,7 +770,7 @@ fn setup_image_callbacks(
                             }
                         })
                         .unwrap();
-                        
+
                         // Timer para limpar mensagem de sucesso após 3 segundos
                         let ui_weak_timer = ui_weak_clone.clone();
                         tokio::spawn(async move {
@@ -776,7 +790,7 @@ fn setup_image_callbacks(
                                 ui.set_success_message("".into());
                                 ui.set_error_in_use_message("".into());
                                 ui.set_error_other_message("".into());
-                                
+
                                 if error_message_clone.starts_with("IN_USE:") {
                                     let msg = error_message_clone
                                         .strip_prefix("IN_USE:")
@@ -791,7 +805,7 @@ fn setup_image_callbacks(
                             }
                         })
                         .unwrap();
-                        
+
                         // Timer para limpar mensagens de erro após 3 segundos
                         let ui_weak_timer = ui_weak_clone.clone();
                         tokio::spawn(async move {
@@ -897,7 +911,7 @@ fn setup_network_callbacks(
                             }
                         })
                         .unwrap();
-                        
+
                         // Timer para limpar mensagem de sucesso após 3 segundos
                         let ui_weak_timer = ui_weak_clone.clone();
                         tokio::spawn(async move {
@@ -917,7 +931,7 @@ fn setup_network_callbacks(
                                 ui.set_network_success_message("".into());
                                 ui.set_network_error_in_use_message("".into());
                                 ui.set_network_error_other_message("".into());
-                                
+
                                 if error_message_clone.starts_with("IN_USE:") {
                                     let msg = error_message_clone
                                         .strip_prefix("IN_USE:")
@@ -932,7 +946,7 @@ fn setup_network_callbacks(
                             }
                         })
                         .unwrap();
-                        
+
                         // Timer para limpar mensagens de erro após 3 segundos
                         let ui_weak_timer = ui_weak_clone.clone();
                         tokio::spawn(async move {
@@ -1038,7 +1052,7 @@ fn setup_volume_callbacks(
                             }
                         })
                         .unwrap();
-                        
+
                         // Timer para limpar mensagem de sucesso após 3 segundos
                         let ui_weak_timer = ui_weak_clone.clone();
                         tokio::spawn(async move {
@@ -1058,7 +1072,7 @@ fn setup_volume_callbacks(
                                 ui.set_volume_success_message("".into());
                                 ui.set_volume_error_in_use_message("".into());
                                 ui.set_volume_error_other_message("".into());
-                                
+
                                 if error_message_clone.starts_with("IN_USE:") {
                                     let msg = error_message_clone
                                         .strip_prefix("IN_USE:")
@@ -1073,7 +1087,7 @@ fn setup_volume_callbacks(
                             }
                         })
                         .unwrap();
-                        
+
                         // Timer para limpar mensagens de erro após 3 segundos
                         let ui_weak_timer = ui_weak_clone.clone();
                         tokio::spawn(async move {
@@ -1106,7 +1120,6 @@ fn setup_volume_callbacks(
         }
     });
 }
-
 
 // Configura callbacks da interface
 fn setup_callbacks(ui_weak: Weak<AppWindow>, _app_state: AppState) {
