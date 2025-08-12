@@ -496,24 +496,18 @@ impl DockerManager {
             .volumes
             .unwrap_or_default()
             .into_iter()
-            .filter_map(|volume| {
+            .map(|volume| {
                 let volume_name = volume.name.clone();
-
-                // Só inclui volumes que são usados por containers
+                // Agora inclui TODOS os volumes, mas com contador de containers
                 let containers_count = used_volumes.get(&volume_name).cloned().unwrap_or(0);
 
-                // Filtra volumes não utilizados - só mostra volumes com containers
-                if containers_count == 0 {
-                    return None;
-                }
-
-                Some(VolumeInfo {
+                VolumeInfo {
                     name: volume_name,
                     driver: volume.driver,
                     mountpoint: volume.mountpoint,
                     created: volume.created_at.unwrap_or_default(),
                     containers_count,
-                })
+                }
             })
             .collect();
 
