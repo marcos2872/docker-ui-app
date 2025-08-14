@@ -55,12 +55,13 @@ component HeaderButton inherits Rectangle {
     callback clicked <=> touch.clicked;
 
     height: 32px;
-    background: root.active ? #2e3030 : transparent;
+    background: root.active ? #232424 : #2e3030;
     border-radius: 6px;
 
     touch := TouchArea { }
 
     HorizontalLayout {
+        alignment: start;
         padding: 8px;
 
         Text {
@@ -152,9 +153,9 @@ export component AppWindow inherits Window {
     callback load-more-logs();
 
     title: "Docker UI";
-    min-width: 950px;
+    min-width: 1020px;
     max-width: 1300px;
-    preferred-width: 950px;
+    preferred-width: 1020px;
     min-height: 850px;
     max-height: 1500px;
     preferred-height: 950px;
@@ -162,81 +163,96 @@ export component AppWindow inherits Window {
     no-frame: false;
     background: #1A1B1B;
 
-    VerticalLayout {
+    HorizontalLayout {
 
         // Cabeçalho da aplicação
         Rectangle {
-            height: 48px;
-            vertical-stretch: 0;
-            background: #1A1B1B;
-            border-width: 1px;
-            border-color: transparent;
-
+            background: #262929;
             VerticalLayout {
-                alignment: center;
-                padding-left: 16px;
 
-                HorizontalLayout {
-                    alignment: start;
-                    spacing: 10px;
+                VerticalLayout {
+                    padding-top: 18px;
+                    padding: 8px;
+                    height: 100%;
+                    alignment: space-between;
 
-                // Botão principal do dashboard
-                HeaderButton {
+                    VerticalLayout {
+                        spacing: 10px;
+
+                        // Botão principal do dashboard
+                        HeaderButton {
+                            Text {
+                                text: "Docker UI";
+                                color: #ffffff;
+                                font-size: 14px;
+                                font-weight: 600;
+                            }
+
+                            clicked => {
+                                root.screen-changed(0);
+                            }
+                        }
+
+                        Rectangle {
+                            height: 10px;
+                        }
+
+                        HeaderButton {
+                            text: "Containers";
+                            active: root.current-screen == 1;
+                            clicked => {
+                                root.screen-changed(1);
+                            }
+                        }
+
+                        HeaderButton {
+                            text: "Images";
+                            active: root.current-screen == 2;
+                            clicked => {
+                                root.screen-changed(2);
+                            }
+                        }
+
+                        HeaderButton {
+                            text: "Networks";
+                            active: root.current-screen == 3;
+                            clicked => {
+                                root.screen-changed(3);
+                            }
+                        }
+
+                        HeaderButton {
+                            text: "Volumes";
+                            active: root.current-screen == 4;
+                            clicked => {
+                                root.screen-changed(4);
+                            }
+                        }
+                    }
+                // Rodapé com status do Docker
+                Rectangle {
+                        background: transparent;
+                        vertical-stretch: 0;
+
+                        // Indicador de status do Docker
                         Text {
-                            text: "Docker UI";
-                            color: #ffffff;
+                            max-width: 60px;
+                            overflow: elide;
+                            text: root.docker-status;
+                            color: root.docker-status == "Rodando" ? #0AD95C : #FA6138;
                             font-size: 14px;
-                            font-weight: 600;
-                        }
-
-                        clicked => {
-                            root.screen-changed(0);
-                        }
-                    }
-
-                    HeaderButton {
-                        text: "Containers";
-                        active: root.current-screen == 1;
-                        clicked => {
-                            root.screen-changed(1);
-                        }
-                    }
-
-                    HeaderButton {
-                        text: "Images";
-                        active: root.current-screen == 2;
-                        clicked => {
-                            root.screen-changed(2);
-                        }
-                    }
-
-                    HeaderButton {
-                        text: "Networks";
-                        active: root.current-screen == 3;
-                        clicked => {
-                            root.screen-changed(3);
-                        }
-                    }
-
-                    HeaderButton {
-                        text: "Volumes";
-                        active: root.current-screen == 4;
-                        clicked => {
-                            root.screen-changed(4);
                         }
                     }
                 }
             }
-
-            // Linha separadora do cabeçalho
-            Rectangle {
-                width: 100%;
-                height: 1px;
-                background: #464747;
-                y: parent.height - 1px;
-            }
         }
-
+        // Linha separadora do cabeçalho
+        Rectangle {
+            width: 1px;
+            height: 100%;
+            background: #464747;
+                // y: parent.height - 1px;
+            }
         // Conteúdo principal
         Rectangle {
             // height: parent.height - 32px - 48px - 25px;
@@ -358,26 +374,6 @@ export component AppWindow inherits Window {
                 }
                 toggle-logs => {
                     root.logs-expanded = !root.logs-expanded;
-                }
-            }
-        }
-
-        // Rodapé com status do Docker
-        Rectangle {
-            height: 25px;
-            background: #1A1B1B;
-            vertical-stretch: 0;
-
-            HorizontalLayout {
-                padding-left: 8px;
-                alignment: start;
-
-
-                // Indicador de status do Docker
-                Text {
-                    text: "Status: " + root.docker-status;
-                    color: root.docker-status == "Rodando" ? #0AD95C : #FA6138;
-                    font-size: 14px;
                 }
             }
         }
