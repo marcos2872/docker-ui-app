@@ -288,27 +288,260 @@ Cada componente é independente e reutilizável, facilitando manutenção e dese
 
 ## 🏗️ Arquitetura
 
-### Interface Modular
-A aplicação utiliza uma arquitetura modular com componentes Slint separados:
+### Visão Geral da Arquitetura
 
-- **`app.slint`** - Janela principal e navegação
-- **`dashboard.slint`** - Dashboard com estatísticas e gráficos
-- **`containers.slint`** - Lista e gerenciamento de containers
-- **`container.slint`** - Componentes individuais de container
+A aplicação Docker UI segue uma **arquitetura modular em camadas** que separa claramente as responsabilidades entre interface, lógica de negócio e integração com Docker. O design permite escalabilidade, manutenibilidade e suporte tanto a instâncias Docker locais quanto remotas via SSH.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     CAMADA DE APRESENTAÇÃO                     │
+├─────────────────────────────────────────────────────────────────┤
+│  UI Components (Slint)  │  State Management  │  Event Handlers │
+│  • app.slint           │  • AppState        │  • Timer callbacks│
+│  • dashboard.slint     │  • ChartData       │  • UI callbacks  │
+│  • containers.slint    │  • UI Managers     │  • User actions  │
+│  • images.slint        │                    │                  │
+│  • networks.slint      │                    │                  │
+│  • volumes.slint       │                    │                  │
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    CAMADA DE LÓGICA DE NEGÓCIO                 │
+├─────────────────────────────────────────────────────────────────┤
+│  Resource Managers      │  Chart Rendering   │  Configuration   │
+│  • ContainerUIManager  │  • ChartRenderer   │  • Config        │
+│  • ImageUIManager      │  • ChartPoint      │  • SshConfig     │
+│  • NetworkUIManager    │  • PlottersBackend │                  │
+│  • VolumeUIManager     │                    │                  │
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    CAMADA DE INTEGRAÇÃO                        │
+├─────────────────────────────────────────────────────────────────┤
+│  Docker Interface      │  Remote Management │  SSH Connectivity│
+│  • DockerManager      │  • RemoteServerMgr │  • SshConnection  │
+│  • DockerInfo         │  • DockerRemoteAdp │  • SshDockerClient│
+│  • Local Docker API   │  • ServerInfo      │  • AuthMethods    │
+└─────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    CAMADA DE INFRAESTRUTURA                    │
+├─────────────────────────────────────────────────────────────────┤
+│  Docker Engine         │  SSH Servers       │  Local System    │
+│  • Local Docker        │  • Remote Docker   │  • File System   │
+│  • Container Runtime   │  • SSH Protocol    │  • Networking    │
+│  • Image Registry      │  • Authentication  │  • Process Mgmt  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Detalhamento das Camadas
+
+#### 🎨 **Camada de Apresentação**
+**Framework**: Slint UI Toolkit
+**Responsabilidades**: Interface gráfica, interação do usuário, visualização de dados
+
+**Componentes Principais**:
+- **`app.slint`** - Janela principal, navegação entre telas, layout global
+- **`dashboard.slint`** - Dashboard com estatísticas em tempo real e gráficos
+- **`containers.slint`** - Lista de containers, controles de operação
+- **`container-details.slint`** - Visualização detalhada de containers individuais
+- **`create-container.slint`** - Modal para criação de novos containers
 - **`images.slint`** - Gerenciamento de imagens Docker
-- **`network.slint`** - Configuração de redes
-- **`volumes.slint`** - Gerenciamento de volumes
+- **`networks.slint`** - Configuração e visualização de redes
+- **`volumes.slint`** - Gerenciamento de volumes persistentes
+- **`servers.slint`** - Interface para gerenciamento de servidores remotos
+- **`ssh_config.slint`** - Configuração de conexões SSH
+- **`notification.slint`** - Sistema de notificações temporárias
 
-### Backend Rust
-- **`main.rs`** - Orquestração e estado da aplicação
-- **`docker.rs`** - API Docker e coleta de métricas
-- **`chart.rs`** - Renderização de gráficos em tempo real
+**Padrões de Design**:
+- **Component-Based Architecture**: Cada tela é um componente reutilizável
+- **Reactive UI**: Atualizações automáticas via bindings bidirecionais
+- **Modular Imports**: Sistema de imports para reutilização de componentes
 
-### Sistema de Build
-- **`build-deb.sh`** - Script de build versionado para pacotes .deb
-- **`clean-builds.sh`** - Gerenciamento e limpeza de builds antigos
-- **`Makefile`** - Automação completa do processo de build
-- **`builds/`** - Diretório de saída para pacotes gerados
+#### ⚙️ **Camada de Lógica de Negócio**
+**Linguagem**: Rust
+**Responsabilidades**: Processamento de dados, regras de negócio, gerenciamento de estado
+
+**Módulos Principais**:
+
+**`main.rs`** - Orquestração central da aplicação:
+- Gerenciamento do estado global (`AppState`)
+- Configuração de timers para atualizações em tempo real
+- Coordenação entre UI e serviços backend
+- Lifecycle management da aplicação
+
+**Resource Managers** - Gerenciadores especializados por tipo de recurso:
+- **`list_containers.rs`** (`ContainerUIManager`) - Lógica de containers
+- **`list_images.rs`** (`ImageUIManager`) - Lógica de imagens
+- **`list_networks.rs`** (`NetworkUIManager`) - Lógica de redes
+- **`list_volumes.rs`** (`VolumeUIManager`) - Lógica de volumes
+
+**`chart.rs`** (`ChartRenderer`) - Sistema de renderização de gráficos:
+- Conversão de dados temporais para formato visual
+- Integração com biblioteca Plotters
+- Geração de gráficos SVG para UI Slint
+- Otimização de performance para atualizações em tempo real
+
+**Características**:
+- **Separation of Concerns**: Cada manager é responsável por um tipo específico de recurso
+- **Thread-Safe**: Uso de `Arc<Mutex<>>` para compartilhamento seguro de estado
+- **Error Handling**: Tratamento robusto de erros com tipo `Result<T, E>`
+
+#### 🔌 **Camada de Integração**
+**Responsabilidades**: Abstração de APIs externas, conectividade, adaptação de protocolos
+
+**Docker Integration**:
+**`docker.rs`** (`DockerManager`) - Interface principal com Docker:
+- Abstração da API Docker via biblioteca Bollard
+- Coleta de estatísticas de containers em tempo real
+- Operações CRUD em todos os recursos Docker
+- Tratamento de erros específicos do Docker
+
+**Remote Management**:
+**`remote/`** - Sistema de gerenciamento multi-servidor:
+- **`manager.rs`** (`RemoteServerManager`) - Gerenciamento centralizado de servidores
+- **`docker_remote.rs`** (`DockerRemoteAdapter`) - Adapter pattern para Docker remoto
+- Suporte a múltiplas instâncias Docker simultâneas
+- Persistência de configurações de servidor
+
+**SSH Connectivity**:
+**`ssh/`** - Conectividade SSH para servidores remotos:
+- **`config.rs`** (`SshServerConfig`) - Configuração de conexões SSH
+- **`connection.rs`** (`SshConnection`) - Gerenciamento de sessões SSH
+- **`client.rs`** (`SshDockerClient`) - Cliente Docker sobre SSH
+- Suporte a múltiplos métodos de autenticação (senha, chave privada)
+
+**Padrões de Design**:
+- **Adapter Pattern**: Uniformização de interfaces locais/remotas
+- **Factory Pattern**: Criação dinâmica de clientes Docker
+- **Strategy Pattern**: Diferentes estratégias de autenticação SSH
+
+#### 🛠️ **Camada de Infraestrutura**
+**Responsabilidades**: Recursos de sistema, protocolos de rede, APIs externas
+
+**Docker Engine**: 
+- Docker daemon local ou remoto
+- Container runtime (containerd/CRI-O)
+- Image registry integration
+- Network plugins e storage drivers
+
+**SSH Infrastructure**:
+- Protocolo SSH para comunicação remota
+- Autenticação baseada em chaves/senhas
+- Tunelamento seguro de comandos Docker
+
+**System Resources**:
+- File system para persistência de configurações
+- Network stack para comunicação
+- Process management para execução de comandos
+
+### Fluxo de Dados e Comunicação
+
+#### 📊 **Fluxo de Monitoramento em Tempo Real**
+```
+Timer (1s) → DockerManager → Statistics Collection → UI Update
+     ↓              ↓                    ↓               ↓
+  Slint Timer → Docker API → JSON Data → Reactive Binding
+```
+
+#### 🐳 **Fluxo de Operações em Containers**
+```
+User Action → UI Event → Manager → Docker API → Response → UI Update
+     ↓            ↓          ↓          ↓           ↓          ↓
+Click Start → callback → ContainerUIManager → bollard → Result → notification
+```
+
+#### 🌐 **Fluxo de Conexão Remota**
+```
+SSH Config → RemoteServerManager → DockerRemoteAdapter → SSH Client → Docker Commands
+     ↓              ↓                      ↓                ↓            ↓
+User Input → Server Registry → Adapter Factory → SSH Session → Remote Execution
+```
+
+### Tecnologias e Dependências
+
+#### **Frontend**
+- **[Slint 1.6](https://slint.dev/)** - Framework de UI nativo e performático
+- **SVG Graphics** - Renderização de gráficos via Plotters
+
+#### **Backend**
+- **[Rust 2024 Edition](https://rust-lang.org/)** - Linguagem de programação
+- **[Tokio 1.47](https://tokio.rs/)** - Runtime assíncrono
+- **[Bollard 0.19](https://github.com/fussybeaver/bollard)** - Cliente Docker nativo
+- **[Plotters 0.3](https://github.com/plotters-rs/plotters)** - Biblioteca de gráficos
+
+#### **Conectividade**
+- **[OpenSSH 0.10](https://github.com/openssh-rust/openssh)** - Cliente SSH de alto nível
+- **[SSH2 0.9](https://github.com/alexcrichton/ssh2-rs)** - Bindings SSH de baixo nível
+
+#### **Serialização e Utilitários**
+- **[Serde 1.0](https://serde.rs/)** - Serialização/deserialização
+- **[Chrono 0.4](https://github.com/chronotope/chrono)** - Manipulação de tempo
+- **[UUID 1.0](https://github.com/uuid-rs/uuid)** - Geração de identificadores únicos
+
+### Padrões Arquiteturais Implementados
+
+#### **📦 Modular Architecture**
+- Separação clara de responsabilidades por módulo
+- Baixo acoplamento entre componentes
+- Alta coesão dentro de cada módulo
+
+#### **🔄 MVC-like Pattern**
+- **Model**: Estruturas de dados (ContainerInfo, ImageInfo, etc.)
+- **View**: Componentes Slint (.slint files)
+- **Controller**: Managers (ContainerUIManager, ImageUIManager, etc.)
+
+#### **🎭 Adapter Pattern**
+- `DockerRemoteAdapter` uniformiza interface local/remoto
+- Abstração transparente para o código cliente
+- Facilita adição de novos tipos de servidor
+
+#### **🏭 Factory Pattern**
+- Criação dinâmica de clientes Docker baseada em configuração
+- `RemoteServerManager` atua como factory para adapters
+- Suporte a diferentes tipos de servidor (local/SSH)
+
+#### **📡 Observer Pattern**
+- Sistema de timers para atualizações periódicas
+- UI reativa com bindings automáticos
+- Notificações baseadas em eventos
+
+### Sistema de Build e Distribuição
+
+#### **Build System**
+- **`build.rs`** - Script de compilação Slint integrado ao Cargo
+- **`Makefile`** - Automação de tarefas de desenvolvimento e build
+- **Multi-platform**: Suporte para diferentes distribuições Linux
+
+#### **Packaging**
+- **`build-deb.sh`** - Geração de pacotes .deb para Debian/Ubuntu
+- **`build-rpm.sh`** - Geração de pacotes .rpm para openSUSE/RHEL
+- **`clean-builds.sh`** - Gerenciamento automático de builds antigos
+
+#### **Development Tools**
+- **Hot Reload**: `cargo watch` para desenvolvimento iterativo
+- **Dependency Management**: Detecção automática de dependências do sistema
+- **Asset Management**: Ícones em múltiplos formatos e resoluções
+
+### Escalabilidade e Extensibilidade
+
+#### **📈 Escalabilidade**
+- **Multi-server Support**: Gerenciamento simultâneo de múltiplos Docker daemons
+- **Async Processing**: Operações não-bloqueantes com Tokio
+- **Memory Efficient**: Estruturas de dados otimizadas e reutilização de objetos
+
+#### **🔧 Extensibilidade**
+- **Plugin Architecture**: Novos tipos de servidor podem ser adicionados facilmente
+- **Modular UI**: Componentes Slint independentes e reutilizáveis
+- **Configuration System**: Sistema flexível de configuração via arquivos JSON
+
+#### **🛡️ Robustez**
+- **Error Handling**: Tratamento abrangente de erros em todas as camadas
+- **Connection Recovery**: Reconexão automática em caso de falhas de rede
+- **Data Validation**: Validação rigorosa de entradas e configurações
 
 ## 🔧 Tecnologias
 
