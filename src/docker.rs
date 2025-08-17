@@ -5,7 +5,7 @@ use bollard::{
     models::{ContainerStatsResponse, ImageSummary},
     query_parameters::{
         ListContainersOptions, ListImagesOptions, ListNetworksOptions, ListVolumesOptions,
-        StatsOptions,
+        RestartContainerOptions, StatsOptions,
     },
     query_parameters::CreateContainerOptions,
     models::ContainerCreateBody,
@@ -1073,15 +1073,15 @@ impl DockerManager {
     //     Ok(())
     // }
 
-    // pub async fn restart_container(&self, container_id: &str) -> Result<()> {
-    //     self.docker
-    //         .restart_container(container_id, None)
-    //         .await
-    //         .context(format!("Falha ao reiniciar container: {}", container_id))?;
+    pub async fn restart_container(&self, container_id: &str) -> Result<()> {
+        self.docker
+            .restart_container(container_id, None::<RestartContainerOptions>)
+            .await
+            .context(format!("Falha ao reiniciar container: {}", container_id))?;
 
-    //     println!("🔄 Container {} reiniciado com sucesso!", container_id);
-    //     Ok(())
-    // }
+        println!("🔄 Container {} reiniciado com sucesso!", container_id);
+        Ok(())
+    }
 
     // Obter logs de um container com paginação
     pub async fn get_container_logs(

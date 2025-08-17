@@ -140,6 +140,10 @@ impl ContainerUIManager {
                 .remove_container(container_name)
                 .await
                 .map_err(|e| format!("Failed to remove container: {}", e).into()),
+            "restart" => docker_manager
+                .restart_container(container_name)
+                .await
+                .map_err(|e| format!("Failed to restart container: {}", e).into()),
             _ => Err(format!("Unknown action: {}", action).into()),
         }
     }
