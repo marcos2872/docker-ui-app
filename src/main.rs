@@ -743,8 +743,9 @@ fn setup_container_callbacks(
                     slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak_result.upgrade() {
                             ui.set_container_loading("".into());
-                            ui.set_container_error("".into());
-                            ui.set_container_success(success_msg.into());
+                            ui.set_notification_message(success_msg.into());
+                            ui.set_notification_is_error(false);
+                            ui.set_show_notification(true);
                         }
                     })
                     .unwrap();
@@ -755,7 +756,7 @@ fn setup_container_callbacks(
                         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_timer.upgrade() {
-                                ui.set_container_success("".into());
+                                ui.set_show_notification(false);
                             }
                         })
                         .unwrap();
@@ -768,23 +769,13 @@ fn setup_container_callbacks(
                     slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak_result.upgrade() {
                             ui.set_container_loading("".into());
-                            ui.set_container_success("".into());
-                            ui.set_container_error(error_msg.into());
+                            ui.set_notification_message(error_msg.into());
+                            ui.set_notification_is_error(true);
+                            ui.set_show_notification(true);
                         }
                     })
                     .unwrap();
 
-                    // Timer para limpar mensagem de erro após 5 segundos
-                    let ui_weak_timer = ui_weak_clone.clone();
-                    tokio::spawn(async move {
-                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                        slint::invoke_from_event_loop(move || {
-                            if let Some(ui) = ui_weak_timer.upgrade() {
-                                ui.set_container_error("".into());
-                            }
-                        })
-                        .unwrap();
-                    });
                 }
 
                 // Atualiza a lista imediatamente após a ação bem-sucedida
@@ -871,10 +862,9 @@ fn setup_image_callbacks(
                     Ok(success_message) => {
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_result.upgrade() {
-                                ui.set_success_message("".into());
-                                ui.set_error_in_use_message("".into());
-                                ui.set_error_other_message("".into());
-                                ui.set_success_message(success_message.into());
+                                ui.set_notification_message(success_message.into());
+                                ui.set_notification_is_error(false);
+                                ui.set_show_notification(true);
                             }
                         })
                         .unwrap();
@@ -885,7 +875,7 @@ fn setup_image_callbacks(
                             tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                             slint::invoke_from_event_loop(move || {
                                 if let Some(ui) = ui_weak_timer.upgrade() {
-                                    ui.set_success_message("".into());
+                                    ui.set_show_notification(false);
                                 }
                             })
                             .unwrap();
@@ -895,37 +885,24 @@ fn setup_image_callbacks(
                         let error_message_clone = error_message.clone();
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_result.upgrade() {
-                                ui.set_success_message("".into());
-                                ui.set_error_in_use_message("".into());
-                                ui.set_error_other_message("".into());
-
-                                if error_message_clone.starts_with("IN_USE:") {
-                                    let msg = error_message_clone
+                                let formatted_error = if error_message_clone.starts_with("IN_USE:") {
+                                    error_message_clone
                                         .strip_prefix("IN_USE:")
-                                        .unwrap_or(&error_message_clone);
-                                    ui.set_error_in_use_message(msg.into());
+                                        .unwrap_or(&error_message_clone)
+                                        .to_string()
                                 } else {
-                                    let msg = error_message_clone
+                                    error_message_clone
                                         .strip_prefix("OTHER_ERROR:")
-                                        .unwrap_or(&error_message_clone);
-                                    ui.set_error_other_message(msg.into());
-                                }
+                                        .unwrap_or(&error_message_clone)
+                                        .to_string()
+                                };
+                                ui.set_notification_message(formatted_error.into());
+                                ui.set_notification_is_error(true);
+                                ui.set_show_notification(true);
                             }
                         })
                         .unwrap();
 
-                        // Timer para limpar mensagens de erro após 3 segundos
-                        let ui_weak_timer = ui_weak_clone.clone();
-                        tokio::spawn(async move {
-                            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                            slint::invoke_from_event_loop(move || {
-                                if let Some(ui) = ui_weak_timer.upgrade() {
-                                    ui.set_error_in_use_message("".into());
-                                    ui.set_error_other_message("".into());
-                                }
-                            })
-                            .unwrap();
-                        });
                     }
                 }
 
@@ -1012,10 +989,9 @@ fn setup_network_callbacks(
                     Ok(success_message) => {
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_result.upgrade() {
-                                ui.set_network_success_message("".into());
-                                ui.set_network_error_in_use_message("".into());
-                                ui.set_network_error_other_message("".into());
-                                ui.set_network_success_message(success_message.into());
+                                ui.set_notification_message(success_message.into());
+                                ui.set_notification_is_error(false);
+                                ui.set_show_notification(true);
                             }
                         })
                         .unwrap();
@@ -1026,7 +1002,7 @@ fn setup_network_callbacks(
                             tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                             slint::invoke_from_event_loop(move || {
                                 if let Some(ui) = ui_weak_timer.upgrade() {
-                                    ui.set_network_success_message("".into());
+                                    ui.set_show_notification(false);
                                 }
                             })
                             .unwrap();
@@ -1036,37 +1012,24 @@ fn setup_network_callbacks(
                         let error_message_clone = error_message.clone();
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_result.upgrade() {
-                                ui.set_network_success_message("".into());
-                                ui.set_network_error_in_use_message("".into());
-                                ui.set_network_error_other_message("".into());
-
-                                if error_message_clone.starts_with("IN_USE:") {
-                                    let msg = error_message_clone
+                                let formatted_error = if error_message_clone.starts_with("IN_USE:") {
+                                    error_message_clone
                                         .strip_prefix("IN_USE:")
-                                        .unwrap_or(&error_message_clone);
-                                    ui.set_network_error_in_use_message(msg.into());
+                                        .unwrap_or(&error_message_clone)
+                                        .to_string()
                                 } else {
-                                    let msg = error_message_clone
+                                    error_message_clone
                                         .strip_prefix("OTHER_ERROR:")
-                                        .unwrap_or(&error_message_clone);
-                                    ui.set_network_error_other_message(msg.into());
-                                }
+                                        .unwrap_or(&error_message_clone)
+                                        .to_string()
+                                };
+                                ui.set_notification_message(formatted_error.into());
+                                ui.set_notification_is_error(true);
+                                ui.set_show_notification(true);
                             }
                         })
                         .unwrap();
 
-                        // Timer para limpar mensagens de erro após 3 segundos
-                        let ui_weak_timer = ui_weak_clone.clone();
-                        tokio::spawn(async move {
-                            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                            slint::invoke_from_event_loop(move || {
-                                if let Some(ui) = ui_weak_timer.upgrade() {
-                                    ui.set_network_error_in_use_message("".into());
-                                    ui.set_network_error_other_message("".into());
-                                }
-                            })
-                            .unwrap();
-                        });
                     }
                 }
 
@@ -1153,10 +1116,9 @@ fn setup_volume_callbacks(
                     Ok(success_message) => {
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_result.upgrade() {
-                                ui.set_volume_success_message("".into());
-                                ui.set_volume_error_in_use_message("".into());
-                                ui.set_volume_error_other_message("".into());
-                                ui.set_volume_success_message(success_message.into());
+                                ui.set_notification_message(success_message.into());
+                                ui.set_notification_is_error(false);
+                                ui.set_show_notification(true);
                             }
                         })
                         .unwrap();
@@ -1167,7 +1129,7 @@ fn setup_volume_callbacks(
                             tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
                             slint::invoke_from_event_loop(move || {
                                 if let Some(ui) = ui_weak_timer.upgrade() {
-                                    ui.set_volume_success_message("".into());
+                                    ui.set_show_notification(false);
                                 }
                             })
                             .unwrap();
@@ -1177,37 +1139,24 @@ fn setup_volume_callbacks(
                         let error_message_clone = error_message.clone();
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_result.upgrade() {
-                                ui.set_volume_success_message("".into());
-                                ui.set_volume_error_in_use_message("".into());
-                                ui.set_volume_error_other_message("".into());
-
-                                if error_message_clone.starts_with("IN_USE:") {
-                                    let msg = error_message_clone
+                                let formatted_error = if error_message_clone.starts_with("IN_USE:") {
+                                    error_message_clone
                                         .strip_prefix("IN_USE:")
-                                        .unwrap_or(&error_message_clone);
-                                    ui.set_volume_error_in_use_message(msg.into());
+                                        .unwrap_or(&error_message_clone)
+                                        .to_string()
                                 } else {
-                                    let msg = error_message_clone
+                                    error_message_clone
                                         .strip_prefix("OTHER_ERROR:")
-                                        .unwrap_or(&error_message_clone);
-                                    ui.set_volume_error_other_message(msg.into());
-                                }
+                                        .unwrap_or(&error_message_clone)
+                                        .to_string()
+                                };
+                                ui.set_notification_message(formatted_error.into());
+                                ui.set_notification_is_error(true);
+                                ui.set_show_notification(true);
                             }
                         })
                         .unwrap();
 
-                        // Timer para limpar mensagens de erro após 3 segundos
-                        let ui_weak_timer = ui_weak_clone.clone();
-                        tokio::spawn(async move {
-                            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-                            slint::invoke_from_event_loop(move || {
-                                if let Some(ui) = ui_weak_timer.upgrade() {
-                                    ui.set_volume_error_in_use_message("".into());
-                                    ui.set_volume_error_other_message("".into());
-                                }
-                            })
-                            .unwrap();
-                        });
                     }
                 }
 
@@ -1278,11 +1227,9 @@ fn setup_create_container_callbacks(
 
                 // Valida campos obrigatórios
                 if name_str.trim().is_empty() {
-                    println!("🔍 DEBUG: Validação falhou - nome vazio");
                     let ui_weak_error = ui_weak_clone.clone();
                     slint::invoke_from_event_loop(move || {
                         if let Some(ui) = ui_weak_error.upgrade() {
-                            println!("🔍 DEBUG: Definindo notificação de erro");
                             ui.set_creating_container(false);
                             ui.set_notification_message("Nome do container é obrigatório".into());
                             ui.set_notification_is_error(true);
