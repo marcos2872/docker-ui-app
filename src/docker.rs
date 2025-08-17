@@ -2,13 +2,13 @@
 use anyhow::{Context, Result};
 use bollard::{
     Docker,
+    models::ContainerCreateBody,
     models::{ContainerStatsResponse, ImageSummary},
+    query_parameters::CreateContainerOptions,
     query_parameters::{
         ListContainersOptions, ListImagesOptions, ListNetworksOptions, ListVolumesOptions,
         RestartContainerOptions, StatsOptions,
     },
-    query_parameters::CreateContainerOptions,
-    models::ContainerCreateBody,
 };
 use chrono;
 use futures_util::TryStreamExt;
@@ -1079,7 +1079,6 @@ impl DockerManager {
             .await
             .context(format!("Falha ao reiniciar container: {}", container_id))?;
 
-        println!("🔄 Container {} reiniciado com sucesso!", container_id);
         Ok(())
     }
 
@@ -1146,60 +1145,60 @@ impl DockerManager {
     }
 
     // Obter logs anteriores de um container (para infinite scroll)
-    pub async fn get_container_logs_before(
-        &self,
-        container_name: &str,
-        before_timestamp: &str,
-        lines: u32,
-    ) -> Result<String> {
-        use bollard::query_parameters::LogsOptions;
-        use futures_util::StreamExt;
+    // pub async fn get_container_logs_before(
+    //     &self,
+    //     container_name: &str,
+    //     before_timestamp: &str,
+    //     lines: u32,
+    // ) -> Result<String> {
+    //     use bollard::query_parameters::LogsOptions;
+    //     use futures_util::StreamExt;
 
-        let logs_options = LogsOptions {
-            stdout: true,
-            stderr: true,
-            until: before_timestamp.parse::<i32>().unwrap_or(0), // Logs antes deste timestamp
-            tail: lines.to_string(),
-            timestamps: true,
-            ..Default::default()
-        };
+    //     let logs_options = LogsOptions {
+    //         stdout: true,
+    //         stderr: true,
+    //         until: before_timestamp.parse::<i32>().unwrap_or(0), // Logs antes deste timestamp
+    //         tail: lines.to_string(),
+    //         timestamps: true,
+    //         ..Default::default()
+    //     };
 
-        let mut logs_stream = self.docker.logs(container_name, Some(logs_options));
+    //     let mut logs_stream = self.docker.logs(container_name, Some(logs_options));
 
-        let mut logs = String::new();
-        while let Some(log_result) = logs_stream.next().await {
-            match log_result {
-                Ok(log_output) => {
-                    logs.push_str(&log_output.to_string());
-                }
-                Err(_) => break,
-            }
-        }
+    //     let mut logs = String::new();
+    //     while let Some(log_result) = logs_stream.next().await {
+    //         match log_result {
+    //             Ok(log_output) => {
+    //                 logs.push_str(&log_output.to_string());
+    //             }
+    //             Err(_) => break,
+    //         }
+    //     }
 
-        // Processa e formata os logs com timestamp
-        let formatted_logs = logs
-            .lines()
-            .filter_map(|line| {
-                if line.len() > 30 {
-                    let timestamp_str = &line[0..30];
-                    let message = if line.len() > 31 { &line[31..] } else { "" };
+    //     // Processa e formata os logs com timestamp
+    //     let formatted_logs = logs
+    //         .lines()
+    //         .filter_map(|line| {
+    //             if line.len() > 30 {
+    //                 let timestamp_str = &line[0..30];
+    //                 let message = if line.len() > 31 { &line[31..] } else { "" };
 
-                    if let Ok(utc_time) = timestamp_str.parse::<chrono::DateTime<chrono::Utc>>() {
-                        let local_time = utc_time.with_timezone(&chrono::Local);
-                        let formatted_time = local_time.format("%H:%M:%S").to_string();
-                        Some(format!("[{}] {}", formatted_time, message))
-                    } else {
-                        Some(message.to_string())
-                    }
-                } else {
-                    Some(line.to_string())
-                }
-            })
-            .collect::<Vec<String>>()
-            .join("\n");
+    //                 if let Ok(utc_time) = timestamp_str.parse::<chrono::DateTime<chrono::Utc>>() {
+    //                     let local_time = utc_time.with_timezone(&chrono::Local);
+    //                     let formatted_time = local_time.format("%H:%M:%S").to_string();
+    //                     Some(format!("[{}] {}", formatted_time, message))
+    //                 } else {
+    //                     Some(message.to_string())
+    //                 }
+    //             } else {
+    //                 Some(line.to_string())
+    //             }
+    //         })
+    //         .collect::<Vec<String>>()
+    //         .join("\n");
 
-        Ok(formatted_logs)
-    }
+    //     Ok(formatted_logs)
+    // }
 
     // Obter estatísticas de um container específico
     pub async fn get_single_container_stats(
@@ -1299,12 +1298,17 @@ impl DockerManager {
 
     // Cria um novo container
     pub async fn create_container(&self, request: CreateContainerRequest) -> Result<String> {
-        use bollard::models::{PortBinding, HostConfig, Mount, MountTypeEnum, RestartPolicy, RestartPolicyNameEnum};
+        use bollard::models::{
+            HostConfig, Mount, MountTypeEnum, PortBinding, RestartPolicy, RestartPolicyNameEnum,
+        };
         use std::collections::HashMap;
-        
+
         // Verifica se o nome já existe
         if self.container_name_exists(&request.name).await? {
-            return Err(anyhow::anyhow!("Container com nome '{}' já existe", request.name));
+            return Err(anyhow::anyhow!(
+                "Container com nome '{}' já existe",
+                request.name
+            ));
         }
 
         // Verifica se a imagem existe localmente, se não, tenta fazer pull
@@ -1316,7 +1320,7 @@ impl DockerManager {
         // Configura mapeamento de portas
         let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
         let mut exposed_ports: HashMap<String, HashMap<(), ()>> = HashMap::new();
-        
+
         for port_map in &request.ports {
             let container_port_key = format!("{}/{}", port_map.container_port, port_map.protocol);
             port_bindings.insert(
@@ -1324,7 +1328,7 @@ impl DockerManager {
                 Some(vec![PortBinding {
                     host_ip: Some("0.0.0.0".to_string()),
                     host_port: Some(port_map.host_port.to_string()),
-                }])
+                }]),
             );
             exposed_ports.insert(container_port_key, HashMap::new());
         }
@@ -1342,7 +1346,8 @@ impl DockerManager {
         }
 
         // Configura variáveis de ambiente
-        let env: Vec<String> = request.environment
+        let env: Vec<String> = request
+            .environment
             .iter()
             .map(|var| format!("{}={}", var.key, var.value))
             .collect();
@@ -1369,7 +1374,9 @@ impl DockerManager {
 
         // Configura comando se especificado
         let cmd = request.command.as_ref().map(|c| {
-            c.split_whitespace().map(|s| s.to_string()).collect::<Vec<String>>()
+            c.split_whitespace()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
         });
 
         // Cria configuração do container
@@ -1393,7 +1400,8 @@ impl DockerManager {
         };
 
         // Cria o container
-        let response = self.docker
+        let response = self
+            .docker
             .create_container(Some(options), config)
             .await
             .context("Falha ao criar container")?;
@@ -1416,14 +1424,16 @@ impl DockerManager {
     async fn image_exists(&self, image_name: &str) -> Result<bool> {
         let images = self.list_images().await?;
         Ok(images.iter().any(|img| {
-            img.tags.iter().any(|tag| tag == image_name || tag.starts_with(&format!("{}:", image_name)))
+            img.tags
+                .iter()
+                .any(|tag| tag == image_name || tag.starts_with(&format!("{}:", image_name)))
         }))
     }
 
     // Faz pull de uma imagem
     async fn pull_image(&self, image_name: &str) -> Result<()> {
-        use futures_util::StreamExt;
         use bollard::query_parameters::CreateImageOptions;
+        use futures_util::StreamExt;
 
         let options = CreateImageOptions {
             from_image: Some(image_name.to_string()),
@@ -1438,7 +1448,11 @@ impl DockerManager {
                     // Pull em progresso
                 }
                 Err(e) => {
-                    return Err(anyhow::anyhow!("Falha ao fazer pull da imagem '{}': {}", image_name, e));
+                    return Err(anyhow::anyhow!(
+                        "Falha ao fazer pull da imagem '{}': {}",
+                        image_name,
+                        e
+                    ));
                 }
             }
         }
