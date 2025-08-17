@@ -57,9 +57,23 @@ export component CreateContainerModal inherits Rectangle {
     callback create-clicked();
     callback cancel-clicked();
 
+    // Posicionamento absoluto para não afetar o layout
+    x: 0px;
+    y: 0px;
     width: 100%;
     height: 100%;
     background: rgba(0, 0, 0, 0.7);
+    z: 100; // Z-index alto para ficar acima do conteúdo
+
+    // TouchArea que bloqueia todos os cliques no fundo
+    TouchArea {
+        width: 100%;
+        height: 100%;
+        // Consome todos os cliques, impedindo que cheguem aos elementos abaixo
+        clicked => {
+            // Não faz nada - apenas bloqueia o clique
+        }
+    }
 
     Rectangle {
         background: #262929;

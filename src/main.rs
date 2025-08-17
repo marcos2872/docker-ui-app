@@ -17,7 +17,10 @@ mod list_volumes;
 
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
-use docker::{ContainerInfo, DockerInfo, DockerManager, CreateContainerRequest, PortMapping, VolumeMapping, EnvVar};
+use docker::{
+    ContainerInfo, CreateContainerRequest, DockerInfo, DockerManager, EnvVar, PortMapping,
+    VolumeMapping,
+};
 use list_containers::{ContainerUIManager, SlintContainerData, setup_container_ui_timer};
 use list_images::{ImageUIManager, SlintImageData};
 use list_networks::{NetworkUIManager, SlintNetworkData};
@@ -1253,7 +1256,6 @@ fn setup_create_container_callbacks(
         let ui_weak = ui_weak.clone();
         let docker_manager = docker_manager.clone();
         move |name, image, command, restart_policy, ports_text, volumes_text, env_vars_text| {
-            
             let ui_weak_clone = ui_weak.clone();
             let docker_manager_clone = docker_manager.clone();
             let name_str = name.to_string();
@@ -1290,7 +1292,7 @@ fn setup_create_container_callbacks(
                     .unwrap();
                     return;
                 }
-                
+
                 if image_str.trim().is_empty() {
                     let ui_weak_error = ui_weak_clone.clone();
                     slint::invoke_from_event_loop(move || {
@@ -1316,7 +1318,11 @@ fn setup_create_container_callbacks(
                     ports,
                     volumes,
                     environment: env_vars,
-                    command: if command_str.trim().is_empty() { None } else { Some(command_str.trim().to_string()) },
+                    command: if command_str.trim().is_empty() {
+                        None
+                    } else {
+                        Some(command_str.trim().to_string())
+                    },
                     restart_policy: restart_policy_str,
                 };
 
@@ -1331,20 +1337,27 @@ fn setup_create_container_callbacks(
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_success.upgrade() {
                                 ui.set_creating_container(false);
-                                ui.set_notification_message(format!("Container '{}' criado e iniciado com sucesso!\nID: {}", container_name, &container_id[..12]).into());
+                                ui.set_notification_message(
+                                    format!(
+                                        "Container '{}' criado e iniciado com sucesso!\nID: {}",
+                                        container_name,
+                                        &container_id[..12]
+                                    )
+                                    .into(),
+                                );
                                 ui.set_notification_is_error(false);
                                 ui.set_show_notification(true);
-                                
+
                                 // Agenda fechamento do modal e notificação juntos após 3 segundos
                                 let ui_weak_timer = ui_weak_clone.clone();
                                 tokio::spawn(async move {
-                                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                                     slint::invoke_from_event_loop(move || {
                                         if let Some(ui) = ui_weak_timer.upgrade() {
                                             // Fecha modal e notificação juntos
                                             ui.set_show_create_modal(false);
                                             ui.set_show_notification(false);
-                                            
+
                                             // Limpa os campos
                                             ui.set_create_container_name("".into());
                                             ui.set_create_image_name("".into());
@@ -1367,7 +1380,9 @@ fn setup_create_container_callbacks(
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_error.upgrade() {
                                 ui.set_creating_container(false);
-                                ui.set_notification_message(format!("Falha ao criar container:\n{}", error_message).into());
+                                ui.set_notification_message(
+                                    format!("Falha ao criar container:\n{}", error_message).into(),
+                                );
                                 ui.set_notification_is_error(true);
                                 ui.set_show_notification(true);
                             }

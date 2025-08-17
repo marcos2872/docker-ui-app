@@ -4,7 +4,7 @@ export component NotificationTooltip inherits Rectangle {
     in-out property <string> message: "";
     in-out property <bool> is-error: false;
     in-out property <bool> show-notification: false;
-    in-out property <duration> show-duration: 3s;
+    in-out property <duration> show-duration: is-error ? 10s : 2s;
 
     callback auto-hide();
 
@@ -16,7 +16,7 @@ export component NotificationTooltip inherits Rectangle {
     Rectangle {
         x: root.width - self.width - 20px;
         y: 20px;
-        width: 450px;
+        width: 350px;
         height: content-layout.preferred-height + 32px;
         background: is-error ? #ef4444 : #059669;
         border-radius: 8px;
@@ -41,7 +41,7 @@ export component NotificationTooltip inherits Rectangle {
         content-layout := HorizontalLayout {
             padding: 16px;
             spacing: 12px;
-            alignment: start;
+            alignment: space-between;
 
             // // Ícone
             // Rectangle {
@@ -108,7 +108,7 @@ export component NotificationTooltip inherits Rectangle {
         // Timer para auto-hide apenas para mensagens de sucesso
         Timer {
             interval: show-duration;
-            running: !is-error; // só roda para mensagens de sucesso
+            running: true;
             triggered => {
                 auto-hide();
             }

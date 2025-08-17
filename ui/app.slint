@@ -183,6 +183,7 @@ export component AppWindow inherits Window {
     no-frame: false;
     background: #1A1B1B;
 
+    // Layout principal sem modal
     HorizontalLayout {
 
         // Cabeçalho da aplicação
@@ -400,36 +401,34 @@ export component AppWindow inherits Window {
                 }
             }
         }
+    }
 
-        // Modal de criação de container - só renderiza quando necessário
-        if show-create-modal: CreateContainerModal {
-            show-modal: true;
-            container-name <=> create-container-name;
-            image-name <=> create-image-name;
-            command <=> create-command;
-            restart-policy <=> create-restart-policy;
-            ports-text <=> create-ports-text;
-            volumes-text <=> create-volumes-text;
-            env-vars-text <=> create-env-vars-text;
-            creating <=> creating-container;
+    // Modal de criação de container - posicionamento absoluto, fora do layout
+    if show-create-modal: CreateContainerModal {
+        show-modal: true;
+        container-name <=> create-container-name;
+        image-name <=> create-image-name;
+        command <=> create-command;
+        restart-policy <=> create-restart-policy;
+        ports-text <=> create-ports-text;
+        volumes-text <=> create-volumes-text;
+        env-vars-text <=> create-env-vars-text;
+        creating <=> creating-container;
 
-            create-clicked => {
-                root.create-container(
-                    create-container-name,
-                    create-image-name,
-                    create-command,
-                    create-restart-policy,
-                    create-ports-text,
-                    create-volumes-text,
-                    create-env-vars-text
-                );
-            }
-
-            cancel-clicked => {
-                root.cancel-create-container();
-            }
+        create-clicked => {
+            root.create-container(
+                create-container-name,
+                create-image-name,
+                create-command,
+                create-restart-policy,
+                create-ports-text,
+                create-volumes-text,
+                create-env-vars-text);
         }
 
+        cancel-clicked => {
+            root.cancel-create-container();
+        }
     }
 
     // Sistema de notificações - sempre por último para ter z-index mais alto
@@ -437,7 +436,7 @@ export component AppWindow inherits Window {
         message: notification-message;
         is-error: notification-is-error;
         show-notification: true;
-        
+
         auto-hide => {
             root.show-notification = false;
         }
