@@ -1,0 +1,448 @@
+struct ServerConfigData {
+    id: string,
+    name: string,
+    host: string,
+    port: int,
+    username: string,
+    password: string,
+    description: string,
+    docker_socket: string,
+    connection_timeout: int,
+    command_timeout: int,
+}
+
+component InputField inherits Rectangle {
+    in property <string> label;
+    in property <string> placeholder: "";
+    in property <bool> is_password: false;
+    in property <bool> is_required: false;
+    in-out property <string> text: "";
+    callback text-edited(string);
+
+    height: 70px;
+    background: transparent;
+
+    VerticalLayout {
+        spacing: 6px;
+
+        HorizontalLayout {
+            spacing: 4px;
+
+            Text {
+                text: root.label;
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: 500;
+            }
+
+            if root.is_required: Text {
+                text: "*";
+                color: #ef4444;
+                font-size: 14px;
+            }
+        }
+
+        Rectangle {
+            height: 40px;
+            background: #232424;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: input-field.has-focus ? #0ea5e9 : #464747;
+
+            input-field := TextInput {
+                text: root.text;
+                // placeholder-text: root.placeholder;
+                font-size: 14px;
+                color: #ffffff;
+                selection-background-color: #0ea5e9;
+                selection-foreground-color: #ffffff;
+                single-line: true;
+                input-type: root.is_password ? InputType.password : InputType.text;
+                
+                x: 12px;
+                y: (parent.height - self.preferred-height) / 2;
+                width: parent.width - 24px;
+
+                edited => {
+                    root.text = self.text;
+                    root.text-edited(self.text);
+                }
+            }
+        }
+    }
+}
+
+component NumberInputField inherits Rectangle {
+    in property <string> label;
+    in property <int> min_value: 0;
+    in property <int> max_value: 99999;
+    in-out property <int> value: 22;
+    callback value-changed(int);
+
+    height: 70px;
+    background: transparent;
+
+    VerticalLayout {
+        spacing: 6px;
+
+        Text {
+            text: root.label;
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        Rectangle {
+            height: 40px;
+            background: #232424;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: input-field.has-focus ? #0ea5e9 : #464747;
+
+            input-field := TextInput {
+                text: root.value;
+                font-size: 14px;
+                color: #ffffff;
+                selection-background-color: #0ea5e9;
+                selection-foreground-color: #ffffff;
+                single-line: true;
+                input-type: InputType.number;
+                
+                x: 12px;
+                y: (parent.height - self.preferred-height) / 2;
+                width: parent.width - 24px;
+
+                edited => {
+                    if (self.text != "") {
+                        root.value = self.text.to-float();
+                        root.value-changed(root.value);
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+component Button inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> danger: false;
+    in property <bool> disabled: false;
+    in property <length> size_w: 100px;
+    in property <length> size_h: 40px;
+    callback clicked <=> touch.clicked;
+
+    height: size_h;
+    width: size_w;
+    background: root.disabled ? #374151 : 
+                root.danger ? #dc2626 : 
+                root.primary ? #0ea5e9 : #374151;
+    border-radius: 6px;
+    opacity: root.disabled ? 0.5 : 1.0;
+
+    touch := TouchArea { 
+        enabled: !root.disabled;
+    }
+
+    Text {
+        text: root.text;
+        color: #ffffff;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 14px;
+        font-weight: root.primary ? 600 : 400;
+    }
+}
+
+export component SshConfigModal inherits Rectangle {
+    // Propriedades do modal
+    in property <bool> show-modal: false;
+    in property <bool> edit-mode: false;
+    in property <string> modal-title: "Adicionar Servidor SSH";
+    
+    // Dados do servidor
+    in-out property <ServerConfigData> server-config;
+    in-out property <bool> is-saving: false;
+    in-out property <string> validation-error: "";
+
+    // Callbacks
+    callback save-clicked(ServerConfigData);
+    callback cancel-clicked();
+    callback test-connection-clicked(ServerConfigData);
+    callback file-browse-clicked(string); // field_name
+
+    visible: root.show-modal;
+    background: #00000080; // Semi-transparent overlay
+
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 600px;
+        height: parent.height * 0.9;
+        background: #1A1B1B;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: #464747;
+
+        VerticalLayout {
+            padding: 24px;
+            spacing: 0px;
+
+            // Header do modal
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                height: 40px;
+
+                Text {
+                    text: root.modal-title;
+                    color: #ffffff;
+                    font-size: 20px;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+
+                Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    background: #374151;
+                    border-radius: 6px;
+
+                    Text {
+                        text: "✕";
+                        color: #ffffff;
+                        font-size: 16px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    TouchArea {
+                        clicked => {
+                            root.cancel-clicked();
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 16px;
+                background: transparent;
+            }
+
+            // Conteúdo do formulário
+            Rectangle {
+                height: parent.height - 120px;
+                clip: true;
+
+                VerticalLayout {
+                    spacing: 16px;
+
+                    // Seção: Informações Básicas
+                    Rectangle {
+                        height: 30px;
+                        background: transparent;
+
+                        Text {
+                            text: "Informações Básicas";
+                            color: #0ea5e9;
+                            font-size: 16px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    InputField {
+                        label: "Nome do Servidor";
+                        placeholder: "Ex: Servidor Produção";
+                        is_required: true;
+                        text: root.server-config.name;
+                        text-edited(text) => {
+                            root.server-config.name = text;
+                        }
+                    }
+
+                    InputField {
+                        label: "Descrição";
+                        placeholder: "Descrição opcional do servidor";
+                        text: root.server-config.description;
+                        text-edited(text) => {
+                            root.server-config.description = text;
+                        }
+                    }
+
+                    // Seção: Configuração SSH
+                    Rectangle {
+                        height: 30px;
+                        background: transparent;
+
+                        Text {
+                            text: "Configuração SSH";
+                            color: #0ea5e9;
+                            font-size: 16px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 16px;
+
+                        InputField {
+                            label: "Host";
+                            placeholder: "Ex: 192.168.1.100 ou meuservidor.com";
+                            is_required: true;
+                            text: root.server-config.host;
+                            text-edited(text) => {
+                                root.server-config.host = text;
+                            }
+                        }
+
+                        NumberInputField {
+                            label: "Porta";
+                            min_value: 1;
+                            max_value: 65535;
+                            value: root.server-config.port;
+                            value-changed(val) => {
+                                root.server-config.port = val;
+                            }
+                        }
+                    }
+
+                    InputField {
+                        label: "Usuário";
+                        placeholder: "Ex: root ou admin";
+                        is_required: true;
+                        text: root.server-config.username;
+                        text-edited(text) => {
+                            root.server-config.username = text;
+                        }
+                    }
+
+                    InputField {
+                        label: "Senha";
+                        placeholder: "Digite a senha SSH";
+                        is_password: true;
+                        is_required: true;
+                        text: root.server-config.password;
+                        text-edited(text) => {
+                            root.server-config.password = text;
+                        }
+                    }
+
+                    // Seção: Configurações Avançadas
+                    Rectangle {
+                        height: 30px;
+                        background: transparent;
+
+                        Text {
+                            text: "Configurações Avançadas";
+                            color: #0ea5e9;
+                            font-size: 16px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    InputField {
+                        label: "Socket Docker (opcional)";
+                        placeholder: "Ex: /var/run/docker.sock";
+                        text: root.server-config.docker_socket;
+                        text-edited(text) => {
+                            root.server-config.docker_socket = text;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 16px;
+
+                        NumberInputField {
+                            label: "Timeout Conexão (s)";
+                            min_value: 5;
+                            max_value: 300;
+                            value: root.server-config.connection_timeout;
+                            value-changed(val) => {
+                                root.server-config.connection_timeout = val;
+                            }
+                        }
+
+                        NumberInputField {
+                            label: "Timeout Comando (s)";
+                            min_value: 5;
+                            max_value: 600;
+                            value: root.server-config.command_timeout;
+                            value-changed(val) => {
+                                root.server-config.command_timeout = val;
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 20px;
+                        background: transparent;
+                    }
+                }
+            }
+
+            // Mensagem de erro de validação
+            if root.validation-error != "": Rectangle {
+                height: 40px;
+                background: #7f1d1d;
+                border-radius: 6px;
+                border-width: 1px;
+                border-color: #dc2626;
+
+                HorizontalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+
+                    Text {
+                        text: "❌";
+                        font-size: 16px;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        text: root.validation-error;
+                        color: #ffffff;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            // Botões de ação
+            HorizontalLayout {
+                spacing: 12px;
+                alignment: end;
+                height: 50px;
+
+                Button {
+                    text: "Testar Conexão";
+                    size_w: 120px;
+                    clicked => {
+                        root.test-connection-clicked(root.server-config);
+                    }
+                }
+
+                Button {
+                    text: "Cancelar";
+                    size_w: 80px;
+                    clicked => {
+                        root.cancel-clicked();
+                    }
+                }
+
+                Button {
+                    text: root.is-saving ? "Salvando..." : (root.edit-mode ? "Salvar" : "Adicionar");
+                    primary: true;
+                    disabled: root.is-saving || root.server-config.name == "" || root.server-config.host == "" || root.server-config.username == "" || root.server-config.password == "";
+                    size_w: 100px;
+                    clicked => {
+                        root.save-clicked(root.server-config);
+                    }
+                }
+            }
+        }
+    }
+}

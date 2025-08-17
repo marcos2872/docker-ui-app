@@ -6,6 +6,8 @@ import { NetworksList } from "network.slint";
 import { VolumesList } from "volumes.slint";
 import { CreateContainerModal } from "create-container.slint";
 import { NotificationTooltip } from "notification.slint";
+import { ServersList } from "servers.slint";
+import { SshConfigModal } from "ssh_config.slint";
 
 // Interface principal da aplicação Docker UI
 
@@ -48,6 +50,37 @@ struct VolumeData {
     mountpoint: string,
     created: string,
     containers_count: int,
+}
+
+struct ServerData {
+    id: string,
+    name: string,
+    server_type: string,
+    host: string,
+    port: int,
+    username: string,
+    description: string,
+    is_active: bool,
+    is_connected: bool,
+    last_connected: string,
+    docker_version: string,
+    containers_count: int,
+    images_count: int,
+    networks_count: int,
+    volumes_count: int,
+}
+
+struct ServerConfigData {
+    id: string,
+    name: string,
+    host: string,
+    port: int,
+    username: string,
+    password: string,
+    description: string,
+    docker_socket: string,
+    connection_timeout: int,
+    command_timeout: int,
 }
 
 // Botão do cabeçalho com estado ativo
@@ -145,6 +178,38 @@ export component AppWindow inherits Window {
     in-out property <string> volume-error-other-message;
     callback refresh-volumes-clicked();
     callback volume-action(string, string);
+
+    // Propriedades dos servidores
+    in-out property <[ServerData]> servers;
+    in-out property <string> server-list-error: "";
+    in-out property <string> server_success_message: "";
+    in-out property <string> server_error_message: "";
+    in-out property <string> server-loading-action: "";
+    in-out property <ServerData> selected-server;
+    in-out property <string> active-server-id: "";
+    in-out property <string> active-server-name: "Local";
+    in-out property <string> connection-status: "disconnected"; // "connected", "connecting", "disconnected", "error"
+    in-out property <string> connection-status-message: "";
+    callback refresh-servers-clicked();
+    callback server-action(string, string);
+    callback view-server-details(ServerData);
+    callback edit-server(ServerData);
+    callback add-server-clicked();
+    callback export-config-clicked();
+    callback import-config-clicked();
+    callback switch-active-server(string);
+
+    // Propriedades do modal de configuração SSH
+    in-out property <bool> show-ssh-config-modal: false;
+    in-out property <bool> ssh-config-edit-mode: false;
+    in-out property <string> ssh-config-modal-title: "Adicionar Servidor SSH";
+    in-out property <ServerConfigData> ssh-config-data;
+    in-out property <bool> ssh-config-saving: false;
+    in-out property <string> ssh-config-validation-error: "";
+    callback save-server-config(ServerConfigData);
+    callback cancel-server-config();
+    callback test-server-connection(ServerConfigData);
+    callback ssh-config-file-browse(string);
 
     // Propriedades do modal de criação de container
     in-out property <bool> show-create-modal: false;
@@ -249,7 +314,95 @@ export component AppWindow inherits Window {
                                 root.screen-changed(4);
                             }
                         }
+
+                        HeaderButton {
+                            text: "Servidores";
+                            active: root.current-screen == 6;
+                            clicked => {
+                                root.screen-changed(6);
+                            }
+                        }
                     }
+
+                    // Seletor de servidor ativo
+                    Rectangle {
+                        height: 80px;
+                        background: transparent;
+
+                        VerticalLayout {
+                            spacing: 8px;
+                            padding: 8px;
+
+                            Text {
+                                text: "Servidor Ativo";
+                                color: #9ca3af;
+                                font-size: 11px;
+                                horizontal-alignment: center;
+                            }
+
+                            Rectangle {
+                                height: 45px;
+                                background: #1f2937;
+                                border-radius: 6px;
+                                border-width: 1px;
+                                border-color: #374151;
+
+                                VerticalLayout {
+                                    padding: 6px;
+                                    spacing: 2px;
+
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        alignment: center;
+
+                                        // Indicador de status de conexão
+                                        Rectangle {
+                                            width: 8px;
+                                            height: 8px;
+                                            border-radius: 4px;
+                                            background: root.connection-status == "connected" ? #10b981 :
+                                                       root.connection-status == "connecting" ? #f59e0b :
+                                                       root.connection-status == "error" ? #ef4444 : #6b7280;
+                                        }
+
+                                        Text {
+                                            text: root.active-server-name != "" ? root.active-server-name : "Local";
+                                            color: #ffffff;
+                                            font-size: 12px;
+                                            font-weight: 600;
+                                            horizontal-alignment: center;
+                                            overflow: elide;
+                                        }
+
+                                        Text {
+                                            text: root.active-server-id != "" ? "🌐" : "💻";
+                                            font-size: 10px;
+                                        }
+                                    }
+
+                                    Text {
+                                        text: root.connection-status == "connected" ? "Conectado" :
+                                              root.connection-status == "connecting" ? "Conectando..." :
+                                              root.connection-status == "error" ? "Erro de conexão" :
+                                              root.active-server-id != "" ? "Desconectado" : "Local";
+                                        color: root.connection-status == "connected" ? #10b981 :
+                                               root.connection-status == "connecting" ? #f59e0b :
+                                               root.connection-status == "error" ? #ef4444 : #6b7280;
+                                        font-size: 10px;
+                                        horizontal-alignment: center;
+                                    }
+                                }
+
+                                TouchArea {
+                                    clicked => {
+                                        // Abre lista de servidores para seleção
+                                        root.screen-changed(6);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                 // Rodapé com status do Docker
                 Rectangle {
                         background: transparent;
@@ -400,6 +553,36 @@ export component AppWindow inherits Window {
                     root.logs-expanded = !root.logs-expanded;
                 }
             }
+            if root.current-screen == 6: ServersList {
+                servers: root.servers;
+                server-list-error: root.server-list-error;
+                server_success_message: root.server_success_message;
+                server_error_message: root.server_error_message;
+                loading-action: root.server-loading-action;
+                selected-server: root.selected-server;
+
+                refresh-clicked => {
+                    root.refresh-servers-clicked();
+                }
+                server-action(id, action) => {
+                    root.server-action(id, action);
+                }
+                view-server-details(server_data) => {
+                    root.view-server-details(server_data);
+                }
+                edit-server(server_data) => {
+                    root.edit-server(server_data);
+                }
+                add-server-clicked => {
+                    root.add-server-clicked();
+                }
+                export-config-clicked => {
+                    root.export-config-clicked();
+                }
+                import-config-clicked => {
+                    root.import-config-clicked();
+                }
+            }
         }
     }
 
@@ -428,6 +611,32 @@ export component AppWindow inherits Window {
 
         cancel-clicked => {
             root.cancel-create-container();
+        }
+    }
+
+    // Modal de configuração SSH
+    if show-ssh-config-modal: SshConfigModal {
+        show-modal: true;
+        edit-mode: root.ssh-config-edit-mode;
+        modal-title: root.ssh-config-modal-title;
+        server-config: root.ssh-config-data;
+        is-saving: root.ssh-config-saving;
+        validation-error: root.ssh-config-validation-error;
+
+        save-clicked(config) => {
+            root.save-server-config(config);
+        }
+
+        cancel-clicked => {
+            root.cancel-server-config();
+        }
+
+        test-connection-clicked(config) => {
+            root.test-server-connection(config);
+        }
+
+        file-browse-clicked(field) => {
+            root.ssh-config-file-browse(field);
         }
     }
 

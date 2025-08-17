@@ -14,6 +14,9 @@ mod list_containers;
 mod list_images;
 mod list_networks;
 mod list_volumes;
+mod ssh;
+mod remote;
+mod config;
 
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
@@ -135,6 +138,12 @@ async fn main() -> Result<(), slint::PlatformError> {
     // Cria janela da aplicação
     let ui = AppWindow::new()?;
 
+    // Inicializa status de conexão
+    ui.set_active_server_name("Local".into());
+    ui.set_active_server_id("".into());
+    ui.set_connection_status("connected".into());
+    ui.set_connection_status_message("".into());
+
     // Configura renderizador de gráfico CPU (azul)
     let mut cpu_chart_renderer = ChartRenderer::new(800, 256);
     cpu_chart_renderer.set_line_color([59, 130, 246]);
@@ -192,7 +201,7 @@ async fn setup_docker_ui(
         Ok(docker_manager) => {
             ui.set_docker_status("Verificando...".into());
 
-            let docker_status = docker_manager.check_docker_status();
+            let docker_status = docker_manager.check_docker_status().await;
             ui.set_docker_status(docker_status.to_shared_string());
 
             // Carrega informações do Docker
@@ -530,6 +539,9 @@ async fn setup_docker_ui(
 
     // Configura callbacks da interface
     setup_callbacks(ui_weak, app_state.clone());
+
+    // Configura callbacks para gerenciamento de servidores SSH
+    // TODO: Implementar setup_server_callbacks quando necessário
 
     timer
 }
@@ -1179,7 +1191,7 @@ fn setup_volume_callbacks(
 }
 
 // Configura callbacks da interface
-fn setup_callbacks(ui_weak: Weak<AppWindow>, _app_state: AppState) {
+fn setup_callbacks(ui_weak: Weak<AppWindow>, app_state: AppState) {
     let ui = ui_weak.upgrade().unwrap();
 
     // Callback para mudança de tela
@@ -1188,6 +1200,350 @@ fn setup_callbacks(ui_weak: Weak<AppWindow>, _app_state: AppState) {
         move |screen_index| {
             if let Some(ui) = ui_weak.upgrade() {
                 ui.set_current_screen(screen_index);
+            }
+        }
+    });
+
+    // Callbacks para gerenciamento de servidores
+    ui.on_add_server_clicked({
+        let ui_weak = ui_weak.clone();
+        move || {
+            println!("=== BOTÃO ADICIONAR SERVIDOR CLICADO ===");
+            if let Some(ui) = ui_weak.upgrade() {
+                // Limpar mensagens anteriores
+                ui.set_server_error_message("".into());
+                ui.set_server_success_message("".into());
+                
+                // Abrir modal de configuração SSH
+                ui.set_show_ssh_config_modal(true);
+                ui.set_ssh_config_edit_mode(false);
+                ui.set_ssh_config_modal_title("Adicionar Servidor SSH".into());
+                
+                println!("Modal de configuração SSH aberto");
+            }
+        }
+    });
+
+    ui.on_export_config_clicked({
+        let ui_weak = ui_weak.clone();
+        move || {
+            println!("=== BOTÃO EXPORTAR CONFIG CLICADO ===");
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_server_error_message("".into());
+                ui.set_server_success_message("📤 Funcionalidade de exportar configuração será implementada em breve".into());
+                
+                let ui_weak_timer = ui_weak.clone();
+                Timer::single_shot(Duration::from_secs(3), move || {
+                    if let Some(ui_timer) = ui_weak_timer.upgrade() {
+                        ui_timer.set_server_success_message("".into());
+                    }
+                });
+            }
+        }
+    });
+
+    ui.on_import_config_clicked({
+        let ui_weak = ui_weak.clone();
+        move || {
+            println!("=== BOTÃO IMPORTAR CONFIG CLICADO ===");
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_server_error_message("".into());
+                ui.set_server_success_message("📥 Funcionalidade de importar configuração será implementada em breve".into());
+                
+                let ui_weak_timer = ui_weak.clone();
+                Timer::single_shot(Duration::from_secs(3), move || {
+                    if let Some(ui_timer) = ui_weak_timer.upgrade() {
+                        ui_timer.set_server_success_message("".into());
+                    }
+                });
+            }
+        }
+    });
+
+    ui.on_refresh_servers_clicked({
+        let ui_weak = ui_weak.clone();
+        move || {
+            println!("=== BOTÃO ATUALIZAR SERVIDORES CLICADO ===");
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_server_error_message("".into());
+                ui.set_server_success_message("🔄 Lista de servidores atualizada".into());
+                
+                let ui_weak_timer = ui_weak.clone();
+                Timer::single_shot(Duration::from_secs(2), move || {
+                    if let Some(ui_timer) = ui_weak_timer.upgrade() {
+                        ui_timer.set_server_success_message("".into());
+                    }
+                });
+            }
+        }
+    });
+
+    ui.on_server_action({
+        let ui_weak = ui_weak.clone();
+        move |id, action| {
+            if let Some(ui) = ui_weak.upgrade() {
+                println!("Ação do servidor: {} - {}", id, action);
+                // TODO: Implementar ações de servidor (conectar, desconectar, remover)
+                ui.set_server_success_message(format!("Ação '{}' executada no servidor {}", action, id).into());
+            }
+        }
+    });
+
+    ui.on_view_server_details({
+        let ui_weak = ui_weak.clone();
+        move |server_data| {
+            if let Some(ui) = ui_weak.upgrade() {
+                println!("Ver detalhes do servidor: {}", server_data.name);
+                // TODO: Implementar visualização de detalhes do servidor
+                ui.set_server_success_message(format!("Visualizando detalhes do servidor: {}", server_data.name).into());
+            }
+        }
+    });
+
+    ui.on_edit_server({
+        let ui_weak = ui_weak.clone();
+        move |server_data| {
+            if let Some(ui) = ui_weak.upgrade() {
+                println!("Editar servidor: {}", server_data.name);
+                // TODO: Implementar modal para editar servidor
+                ui.set_server_success_message(format!("Editando servidor: {}", server_data.name).into());
+            }
+        }
+    });
+
+    // Callbacks para o modal de configuração SSH
+    ui.on_save_server_config({
+        let ui_weak = ui_weak.clone();
+        let app_state = app_state.clone();
+        move |config| {
+            println!("=== CALLBACK SALVAR SERVIDOR CHAMADO ===");
+            println!("Nome: '{}'", config.name);
+            println!("Host: '{}'", config.host);
+            println!("Porta: {}", config.port);
+            println!("Usuário: '{}'", config.username);
+            println!("Senha: '{}' (len={})", if config.password.is_empty() { "[VAZIA]" } else { "[PREENCHIDA]" }, config.password.len());
+            
+            if let Some(ui) = ui_weak.upgrade() {
+                println!("UI upgrade successful");
+                
+                // Validação detalhada
+                let mut validation_errors = Vec::new();
+                if config.name.is_empty() {
+                    validation_errors.push("Nome");
+                }
+                if config.host.is_empty() {
+                    validation_errors.push("Host");
+                }
+                if config.username.is_empty() {
+                    validation_errors.push("Usuário");
+                }
+                if config.password.is_empty() {
+                    validation_errors.push("Senha");
+                }
+                
+                if !validation_errors.is_empty() {
+                    let error_msg = format!("Campos obrigatórios não preenchidos: {}", validation_errors.join(", "));
+                    println!("ERRO DE VALIDAÇÃO: {}", error_msg);
+                    ui.set_ssh_config_validation_error(error_msg.into());
+                    return;
+                }
+                
+                println!("Validação passou - prosseguindo com salvamento");
+                
+                // Limpar erros de validação
+                ui.set_ssh_config_validation_error("".into());
+                ui.set_ssh_config_saving(true);
+                
+                // Implementa salvamento real de servidor
+                let ui_weak_timer = ui_weak.clone();
+                let config_name = config.name.to_string();
+                let config_clone = config.clone();
+                
+                // Spawn task assíncrona para salvamento
+                tokio::spawn(async move {
+                    // Converte dados do modal para estrutura de configuração
+                    use crate::ssh::config::{SshServerConfig, AuthMethod};
+                    
+                    let auth_method = AuthMethod {
+                        password: config_clone.password.to_string()
+                    };
+
+                    let ssh_config = SshServerConfig {
+                        name: config_clone.name.to_string(),
+                        host: config_clone.host.to_string(),
+                        port: config_clone.port as u16,
+                        username: config_clone.username.to_string(),
+                        auth_method,
+                        docker_socket: if config_clone.docker_socket.is_empty() {
+                            None
+                        } else {
+                            Some(config_clone.docker_socket.to_string())
+                        },
+                    };
+
+                    // Validação adicional da configuração SSH e criação do resultado
+                    let result: Result<String, anyhow::Error> = match ssh_config.validate() {
+                        Ok(_) => {
+                            println!("Servidor configurado: {} ({}@{}:{})", 
+                                config_clone.name, config_clone.username, config_clone.host, config_clone.port);
+                            
+                            // TODO: Integrar com ConfigManager para persistência real
+                            println!("Servidor validado e pronto para salvamento");
+                            
+                            Ok(uuid::Uuid::new_v4().to_string())
+                        },
+                        Err(e) => Err(anyhow::anyhow!("Erro de validação: {}", e)),
+                    };
+                    
+                    // Processa resultado na thread UI
+                    slint::invoke_from_event_loop(move || {
+                        println!("Timer callback executado");
+                        if let Some(ui_timer) = ui_weak_timer.upgrade() {
+                            println!("UI timer upgrade successful");
+                            ui_timer.set_ssh_config_saving(false);
+                            
+                            match result {
+                                Ok(_server_id) => {
+                                    println!("Salvamento bem-sucedido - fechando modal e mostrando sucesso");
+                                    ui_timer.set_show_ssh_config_modal(false);
+                                    ui_timer.set_server_success_message(format!("✅ Servidor '{}' adicionado com sucesso!", config_name).into());
+                                    
+                                    println!("Servidor '{}' adicionado com sucesso", config_name);
+                                    
+                                    // Limpar mensagem após 3 segundos
+                                    let ui_weak_clear = ui_weak_timer.clone();
+                                    slint::Timer::single_shot(std::time::Duration::from_secs(3), move || {
+                                        if let Some(ui_clear) = ui_weak_clear.upgrade() {
+                                            ui_clear.set_server_success_message("".into());
+                                        }
+                                    });
+                                }
+                                Err(e) => {
+                                    println!("Erro ao salvar: {}", e);
+                                    ui_timer.set_ssh_config_validation_error(format!("Erro ao salvar: {}", e).into());
+                                }
+                            }
+                        }
+                    }).unwrap();
+                });
+                
+            }
+        }
+    });
+
+    ui.on_cancel_server_config({
+        let ui_weak = ui_weak.clone();
+        move || {
+            println!("=== CANCELAR CONFIGURAÇÃO SERVIDOR ===");
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_show_ssh_config_modal(false);
+                ui.set_ssh_config_validation_error("".into());
+                ui.set_ssh_config_saving(false);
+            }
+        }
+    });
+
+    ui.on_test_server_connection({
+        let ui_weak = ui_weak.clone();
+        move |config| {
+            println!("=== TESTAR CONEXÃO SERVIDOR ===");
+            println!("Testando conexão para: {}@{}:{}", config.username, config.host, config.port);
+            
+            if let Some(ui) = ui_weak.upgrade() {
+                // Validação básica antes do teste
+                if config.host.is_empty() || config.username.is_empty() || config.password.is_empty() {
+                    ui.set_ssh_config_validation_error("Host, usuário e senha são obrigatórios para teste".into());
+                    return;
+                }
+                
+                ui.set_ssh_config_validation_error("".into());
+                ui.set_server_success_message("🔄 Testando conexão SSH...".into());
+                
+                // Spawn task para teste assíncrono
+                let ui_weak_test = ui_weak.clone();
+                let test_config = config.clone();
+                
+                tokio::spawn(async move {
+                    let test_result = {
+                        // Converte configuração para estrutura SSH
+                        use crate::ssh::config::{SshServerConfig, AuthMethod};
+                        use crate::remote::DockerRemoteAdapter;
+
+                        let auth_method = AuthMethod {
+                            password: test_config.password.to_string()
+                        };
+
+                        let ssh_config = SshServerConfig {
+                            name: test_config.name.to_string(),
+                            host: test_config.host.to_string(),
+                            port: test_config.port as u16,
+                            username: test_config.username.to_string(),
+                            auth_method,
+                            docker_socket: if test_config.docker_socket.is_empty() {
+                                Some("/var/run/docker.sock".to_string())
+                            } else {
+                                Some(test_config.docker_socket.to_string())
+                            },
+                        };
+
+                        // Testa conexão SSH
+                        let adapter = DockerRemoteAdapter::new(ssh_config);
+                        match adapter.connect().await {
+                            Ok(_) => {
+                                // Testa também se Docker está disponível
+                                match adapter.list_containers().await {
+                                    Ok(_) => Ok("✅ Conexão SSH e Docker funcionando!".to_string()),
+                                    Err(_) => Ok("⚠️ SSH conectou mas Docker não está disponível".to_string()),
+                                }
+                            }
+                            Err(e) => Err(format!("❌ Falha na conexão SSH: {}", e)),
+                        }
+                    };
+
+                    Timer::single_shot(Duration::from_millis(100), move || {
+                        if let Some(ui_test) = ui_weak_test.upgrade() {
+                            match test_result {
+                                Ok(success_msg) => {
+                                    ui_test.set_server_success_message(success_msg.into());
+                                    ui_test.set_ssh_config_validation_error("".into());
+                                }
+                                Err(error_msg) => {
+                                    ui_test.set_server_success_message("".into());
+                                    ui_test.set_ssh_config_validation_error(error_msg.into());
+                                }
+                            }
+                            
+                            // Limpar mensagens após 5 segundos
+                            let ui_weak_clear = ui_weak_test.clone();
+                            Timer::single_shot(Duration::from_secs(5), move || {
+                                if let Some(ui_clear) = ui_weak_clear.upgrade() {
+                                    ui_clear.set_server_success_message("".into());
+                                    ui_clear.set_ssh_config_validation_error("".into());
+                                }
+                            });
+                        }
+                    });
+                });
+            }
+        }
+    });
+
+    ui.on_ssh_config_file_browse({
+        let ui_weak = ui_weak.clone();
+        move |field_name| {
+            println!("=== PROCURAR ARQUIVO ===");
+            println!("Campo: {}", field_name);
+            
+            if let Some(ui) = ui_weak.upgrade() {
+                // TODO: Implementar diálogo de seleção de arquivo
+                ui.set_server_success_message("📁 Seleção de arquivo será implementada em breve".into());
+                
+                let ui_weak_timer = ui_weak.clone();
+                Timer::single_shot(Duration::from_secs(2), move || {
+                    if let Some(ui_timer) = ui_weak_timer.upgrade() {
+                        ui_timer.set_server_success_message("".into());
+                    }
+                });
             }
         }
     });

@@ -17,8 +17,13 @@ use std::{
     collections::HashMap,
     fmt,
     process::Command,
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+// Imports dos módulos remotos
+use crate::remote::{DockerRemoteAdapter, ServerInfo, ServerType, RemoteServerManager};
+use crate::ssh::SshServerConfig;
 
 // Informações básicas de um container
 #[derive(Debug, Serialize, Deserialize)]
@@ -94,10 +99,31 @@ struct PreviousStats {
     block_write: u64,
 }
 
-// Gerenciador principal do Docker
+/// Contexto de execução do Docker (local ou remoto)
+#[derive(Debug, Clone)]
+pub enum DockerExecutionContext {
+    Local(Docker),
+    Remote {
+        adapter: Arc<DockerRemoteAdapter>,
+        server_info: ServerInfo,
+    },
+}
+
+/// Configuração do contexto Docker
+#[derive(Debug, Clone)]
+pub struct DockerContextConfig {
+    pub server_id: String,
+    pub server_name: String,
+    pub is_remote: bool,
+    pub ssh_config: Option<SshServerConfig>,
+}
+
+// Gerenciador principal do Docker com suporte a contextos local e remoto
 pub struct DockerManager {
-    docker: Docker,
+    context: DockerExecutionContext,
+    context_config: DockerContextConfig,
     previous_stats: HashMap<String, PreviousStats>,
+    server_manager: Arc<RemoteServerManager>,
 }
 
 // Informações gerais do sistema Docker
@@ -184,15 +210,245 @@ pub struct EnvVar {
 }
 
 impl DockerManager {
-    // Cria nova instância conectando ao Docker daemon
+    /// Cria nova instância conectando ao Docker daemon local
     pub async fn new() -> Result<Self> {
         let docker = Docker::connect_with_socket_defaults()
             .context("Falha ao conectar com Docker daemon")?;
 
+        let context_config = DockerContextConfig {
+            server_id: "local".to_string(),
+            server_name: "Local".to_string(),
+            is_remote: false,
+            ssh_config: None,
+        };
+
+        let server_manager = Arc::new(RemoteServerManager::new());
+
         Ok(DockerManager {
-            docker,
+            context: DockerExecutionContext::Local(docker),
+            context_config,
             previous_stats: HashMap::new(),
+            server_manager,
         })
+    }
+
+    /// Cria nova instância com gerenciador de servidores existente
+    pub async fn new_with_server_manager(server_manager: Arc<RemoteServerManager>) -> Result<Self> {
+        let docker = Docker::connect_with_socket_defaults()
+            .context("Falha ao conectar com Docker daemon")?;
+
+        let context_config = DockerContextConfig {
+            server_id: "local".to_string(),
+            server_name: "Local".to_string(),
+            is_remote: false,
+            ssh_config: None,
+        };
+
+        Ok(DockerManager {
+            context: DockerExecutionContext::Local(docker),
+            context_config,
+            previous_stats: HashMap::new(),
+            server_manager,
+        })
+    }
+
+    /// Cria instância para servidor remoto via SSH
+    pub async fn new_remote(
+        server_info: ServerInfo,
+        server_manager: Arc<RemoteServerManager>,
+    ) -> Result<Self> {
+        let ssh_config = match &server_info.server_type {
+            ServerType::Remote(config) => config.clone(),
+            ServerType::Local => {
+                return Err(anyhow::anyhow!("Servidor não é do tipo remoto"));
+            }
+        };
+
+        let adapter = Arc::new(DockerRemoteAdapter::new(ssh_config.clone()));
+        
+        // Tenta conectar ao servidor remoto
+        adapter.connect().await
+            .context("Falha ao conectar ao servidor Docker remoto")?;
+
+        let context_config = DockerContextConfig {
+            server_id: server_info.id.clone(),
+            server_name: server_info.name.clone(),
+            is_remote: true,
+            ssh_config: Some(ssh_config),
+        };
+
+        Ok(DockerManager {
+            context: DockerExecutionContext::Remote {
+                adapter,
+                server_info,
+            },
+            context_config,
+            previous_stats: HashMap::new(),
+            server_manager,
+        })
+    }
+
+    /// Troca o contexto para um servidor específico
+    pub async fn switch_to_server(&mut self, server_id: &str) -> Result<()> {
+        if server_id == "local" {
+            // Troca para contexto local
+            let docker = Docker::connect_with_socket_defaults()
+                .context("Falha ao conectar com Docker daemon local")?;
+
+            self.context = DockerExecutionContext::Local(docker);
+            self.context_config = DockerContextConfig {
+                server_id: "local".to_string(),
+                server_name: "Local".to_string(),
+                is_remote: false,
+                ssh_config: None,
+            };
+        } else {
+            // Troca para contexto remoto
+            let server_info = self.server_manager.get_server(server_id).await
+                .ok_or_else(|| anyhow::anyhow!("Servidor '{}' não encontrado", server_id))?;
+
+            let ssh_config = match &server_info.server_type {
+                ServerType::Remote(config) => config.clone(),
+                ServerType::Local => {
+                    return Err(anyhow::anyhow!("Servidor não é do tipo remoto"));
+                }
+            };
+
+            let adapter = Arc::new(DockerRemoteAdapter::new(ssh_config.clone()));
+            adapter.connect().await
+                .context("Falha ao conectar ao servidor Docker remoto")?;
+
+            self.context = DockerExecutionContext::Remote {
+                adapter,
+                server_info: server_info.clone(),
+            };
+
+            self.context_config = DockerContextConfig {
+                server_id: server_info.id.clone(),
+                server_name: server_info.name.clone(),
+                is_remote: true,
+                ssh_config: Some(ssh_config),
+            };
+        }
+
+        // Limpa estatísticas anteriores ao trocar contexto
+        self.previous_stats.clear();
+        Ok(())
+    }
+
+    /// Obtém informações do contexto atual
+    pub fn get_context_config(&self) -> &DockerContextConfig {
+        &self.context_config
+    }
+
+    /// Verifica se está em contexto remoto
+    pub fn is_remote(&self) -> bool {
+        self.context_config.is_remote
+    }
+
+    /// Obtém referência ao gerenciador de servidores
+    pub fn get_server_manager(&self) -> &Arc<RemoteServerManager> {
+        &self.server_manager
+    }
+
+    /// Cria instância com fallback inteligente (remoto -> local)
+    pub async fn new_with_fallback(server_id: Option<String>, server_manager: Arc<RemoteServerManager>) -> Result<Self> {
+        if let Some(id) = server_id {
+            // Tenta conectar ao servidor remoto especificado
+            if let Some(server_info) = server_manager.get_server(&id).await {
+                match Self::try_remote_connection(&server_info, server_manager.clone()).await {
+                    Ok(manager) => return Ok(manager),
+                    Err(e) => {
+                        eprintln!("Falha ao conectar servidor remoto '{}': {}. Usando local.", server_info.name, e);
+                    }
+                }
+            }
+        }
+
+        // Fallback para Docker local
+        Self::new_with_server_manager(server_manager).await
+    }
+
+    /// Tenta criar conexão remota
+    async fn try_remote_connection(server_info: &ServerInfo, server_manager: Arc<RemoteServerManager>) -> Result<Self> {
+        match &server_info.server_type {
+            ServerType::Remote(ssh_config) => {
+                let adapter = Arc::new(DockerRemoteAdapter::new(ssh_config.clone()));
+                
+                // Testa conexão
+                adapter.connect().await.context("Falha na conexão SSH")?;
+                
+                Ok(DockerManager {
+                    context: DockerExecutionContext::Remote {
+                        adapter: adapter.clone(),
+                        server_info: server_info.clone(),
+                    },
+                    context_config: DockerContextConfig {
+                        server_id: server_info.id.clone(),
+                        server_name: server_info.name.clone(),
+                        is_remote: true,
+                        ssh_config: Some(ssh_config.clone()),
+                    },
+                    previous_stats: HashMap::new(),
+                    server_manager,
+                })
+            }
+            ServerType::Local => {
+                // Servidor "remoto" configurado como local
+                Self::new().await
+            }
+        }
+    }
+
+    /// Obtém informações do contexto atual
+    pub fn get_current_context(&self) -> &DockerContextConfig {
+        &self.context_config
+    }
+
+    /// Verifica se está usando conexão remota
+    pub fn is_using_remote(&self) -> bool {
+        matches!(self.context, DockerExecutionContext::Remote { .. })
+    }
+
+    /// Obtém nome do servidor atual
+    pub fn get_current_server_name(&self) -> &str {
+        &self.context_config.server_name
+    }
+
+    /// Obtém ID do servidor atual
+    pub fn get_current_server_id(&self) -> &str {
+        &self.context_config.server_id
+    }
+
+    /// Testa conectividade do contexto atual
+    pub async fn test_connectivity(&self) -> Result<bool> {
+        match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                match docker.ping().await {
+                    Ok(_) => Ok(true),
+                    Err(_) => Ok(false),
+                }
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                Ok(adapter.is_connected().await)
+            }
+        }
+    }
+
+    /// Reconecta ao contexto atual (útil para recuperar conexões perdidas)
+    pub async fn reconnect(&mut self) -> Result<()> {
+        match &self.context {
+            DockerExecutionContext::Local(_) => {
+                // Para conexões locais, recria a conexão
+                let docker = Docker::connect_with_socket_defaults()
+                    .context("Falha ao reconectar com Docker local")?;
+                self.context = DockerExecutionContext::Local(docker);
+                Ok(())
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                adapter.connect().await.context("Falha ao reconectar SSH")
+            }
+        }
     }
 
     // Verifica se Docker daemon está respondendo
@@ -206,263 +462,343 @@ impl DockerManager {
     //     }
     // }
 
-    // Verifica status do Docker via linha de comando
-    pub fn check_docker_status(&self) -> DockerStatus {
-        let docker_version = Command::new("docker").arg("--version").output();
+    /// Verifica status do Docker (local ou remoto)
+    pub async fn check_docker_status(&self) -> DockerStatus {
+        match &self.context {
+            DockerExecutionContext::Local(_) => {
+                // Para contexto local, usa verificação via linha de comando
+                let docker_version = Command::new("docker").arg("--version").output();
 
-        match docker_version {
-            Ok(output) => {
-                if !output.status.success() {
-                    return DockerStatus::NotInstalled;
-                }
-            }
-            Err(_) => {
-                return DockerStatus::NotInstalled;
-            }
-        }
-
-        let docker_info = Command::new("docker").arg("info").output();
-
-        match docker_info {
-            Ok(output) => {
-                if output.status.success() {
-                    DockerStatus::Running
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-
-                    if stderr.contains("permission denied")
-                        || stderr.contains("Permission denied")
-                        || stderr.contains("dial unix")
-                        || stderr.contains("connect: permission denied")
-                        || stderr.contains("Got permission denied while trying to connect")
-                        || stdout.contains("permission denied")
-                    {
-                        DockerStatus::PermissionDenied
-                    } else if stderr.contains("Cannot connect to the Docker daemon")
-                        || stderr.contains("Is the docker daemon running?")
-                        || stderr.contains("docker daemon is not running")
-                    {
-                        DockerStatus::NotRunning
-                    } else {
-                        DockerStatus::PermissionDenied
+                match docker_version {
+                    Ok(output) => {
+                        if !output.status.success() {
+                            return DockerStatus::NotInstalled;
+                        }
+                    }
+                    Err(_) => {
+                        return DockerStatus::NotInstalled;
                     }
                 }
-            }
-            Err(_) => DockerStatus::PermissionDenied,
-        }
-    }
 
-    // Obtém informações gerais do Docker
-    pub async fn get_docker_info(&self) -> Result<DockerInfo> {
-        let version = self
-            .docker
-            .version()
-            .await
-            .context("Falha ao obter versão do Docker")?;
+                let docker_info = Command::new("docker").arg("info").output();
 
-        let info = self
-            .docker
-            .info()
-            .await
-            .context("Falha ao obter informações do Docker")?;
+                match docker_info {
+                    Ok(output) => {
+                        if output.status.success() {
+                            DockerStatus::Running
+                        } else {
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            let stdout = String::from_utf8_lossy(&output.stdout);
 
-        Ok(DockerInfo {
-            version: version.version.unwrap_or_default(),
-            containers: info.containers.unwrap_or(0),
-            containers_paused: info.containers_paused.unwrap_or(0),
-            containers_running: info.containers_running.unwrap_or(0),
-            containers_stopped: info.containers_stopped.unwrap_or(0),
-            images: info.images.unwrap_or(0),
-            architecture: version.arch.unwrap_or_default(),
-        })
-    }
-
-    // Lista todos os containers (ativos e parados)
-    pub async fn list_containers(&self) -> Result<Vec<ContainerInfo>> {
-        let containers = self
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: true,
-                ..Default::default()
-            }))
-            .await
-            .context("Falha ao listar containers")?;
-
-        let container_infos: Vec<ContainerInfo> = containers
-            .into_iter()
-            .map(|container| ContainerInfo {
-                id: container.id.unwrap_or_default(),
-                name: container
-                    .names
-                    .unwrap_or_default()
-                    .join(", ")
-                    .trim_start_matches('/')
-                    .to_string(),
-                image: container.image.unwrap_or_default(),
-                state: container
-                    .state
-                    .map_or("unknown".to_string(), |s| s.to_string()),
-                status: container.status.unwrap_or_default(),
-                ports: container
-                    .ports
-                    .unwrap_or_default()
-                    .iter()
-                    .filter_map(|port| port.public_port.map(|p| p as i32))
-                    .collect(),
-                created: container.created.unwrap_or_default(),
-            })
-            .collect();
-
-        Ok(container_infos)
-    }
-
-    // Inicia um container
-    pub async fn start_container(&self, container_name: &str) -> Result<()> {
-        let output = Command::new("docker")
-            .args(&["start", container_name])
-            .output()
-            .context("Failed to execute docker start command")?;
-
-        if !output.status.success() {
-            return Err(anyhow::anyhow!(
-                "Failed to start container {}: {}",
-                container_name,
-                String::from_utf8_lossy(&output.stderr)
-            ));
-        }
-
-        Ok(())
-    }
-
-    // Lista todas as imagens
-    pub async fn list_images(&self) -> Result<Vec<ImageInfo>> {
-        let images = self
-            .docker
-            .list_images(Some(ListImagesOptions {
-                all: false,
-                ..Default::default()
-            }))
-            .await
-            .context("Falha ao listar imagens")?;
-
-        let mut image_infos: Vec<ImageInfo> = images
-            .into_iter()
-            .map(|image: ImageSummary| {
-                let in_use = image.containers > 0;
-                ImageInfo {
-                    id: image.id.clone(),
-                    tags: image.repo_tags.clone(),
-                    created: image.created,
-                    size: image.size,
-                    in_use,
+                            if stderr.contains("permission denied")
+                                || stderr.contains("Permission denied")
+                                || stderr.contains("dial unix")
+                                || stderr.contains("connect: permission denied")
+                                || stderr.contains("Got permission denied while trying to connect")
+                                || stdout.contains("permission denied")
+                            {
+                                DockerStatus::PermissionDenied
+                            } else if stderr.contains("Cannot connect to the Docker daemon")
+                                || stderr.contains("Is the docker daemon running?")
+                                || stderr.contains("docker daemon is not running")
+                            {
+                                DockerStatus::NotRunning
+                            } else {
+                                DockerStatus::PermissionDenied
+                            }
+                        }
+                    }
+                    Err(_) => DockerStatus::PermissionDenied,
                 }
-            })
-            .collect();
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                // Para contexto remoto, testa conectividade SSH e Docker
+                match adapter.test_connection().await {
+                    Ok(true) => DockerStatus::Running,
+                    Ok(false) => DockerStatus::NotRunning,
+                    Err(_) => DockerStatus::NotRunning,
+                }
+            }
+        }
+    }
 
-        // Ordena por nome da primeira tag para manter ordem consistente
-        image_infos.sort_by(|a, b| {
-            let tag_a = a.tags.get(0).cloned().unwrap_or_default();
-            let tag_b = b.tags.get(0).cloned().unwrap_or_default();
-            tag_a.cmp(&tag_b)
-        });
+    /// Obtém informações gerais do Docker (local ou remoto)
+    pub async fn get_docker_info(&self) -> Result<DockerInfo> {
+        match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                let version = docker
+                    .version()
+                    .await
+                    .context("Falha ao obter versão do Docker")?;
 
-        Ok(image_infos)
+                let info = docker
+                    .info()
+                    .await
+                    .context("Falha ao obter informações do Docker")?;
+
+                Ok(DockerInfo {
+                    version: version.version.unwrap_or_default(),
+                    containers: info.containers.unwrap_or(0),
+                    containers_paused: info.containers_paused.unwrap_or(0),
+                    containers_running: info.containers_running.unwrap_or(0),
+                    containers_stopped: info.containers_stopped.unwrap_or(0),
+                    images: info.images.unwrap_or(0),
+                    architecture: version.arch.unwrap_or_default(),
+                })
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                // Para contexto remoto, usa informações do sistema
+                if let Some(system_info) = adapter.get_system_info().await {
+                    Ok(DockerInfo {
+                        version: system_info.version,
+                        containers: (system_info.containers_running + system_info.containers_paused + system_info.containers_stopped) as i64,
+                        containers_paused: system_info.containers_paused as i64,
+                        containers_running: system_info.containers_running as i64,
+                        containers_stopped: system_info.containers_stopped as i64,
+                        images: system_info.images as i64,
+                        architecture: system_info.architecture,
+                    })
+                } else {
+                    // Fallback com valores padrão se não conseguir obter informações
+                    Ok(DockerInfo {
+                        version: "Desconhecido".to_string(),
+                        containers: 0,
+                        containers_paused: 0,
+                        containers_running: 0,
+                        containers_stopped: 0,
+                        images: 0,
+                        architecture: "x86_64".to_string(),
+                    })
+                }
+            }
+        }
+    }
+
+    /// Lista todos os containers (ativos e parados)
+    pub async fn list_containers(&self) -> Result<Vec<ContainerInfo>> {
+        match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                let containers = docker
+                    .list_containers(Some(ListContainersOptions {
+                        all: true,
+                        ..Default::default()
+                    }))
+                    .await
+                    .context("Falha ao listar containers")?;
+
+                let container_infos: Vec<ContainerInfo> = containers
+                    .into_iter()
+                    .map(|container| ContainerInfo {
+                        id: container.id.unwrap_or_default(),
+                        name: container
+                            .names
+                            .unwrap_or_default()
+                            .join(", ")
+                            .trim_start_matches('/')
+                            .to_string(),
+                        image: container.image.unwrap_or_default(),
+                        state: container
+                            .state
+                            .map_or("unknown".to_string(), |s| s.to_string()),
+                        status: container.status.unwrap_or_default(),
+                        ports: container
+                            .ports
+                            .unwrap_or_default()
+                            .iter()
+                            .filter_map(|port| port.public_port.map(|p| p as i32))
+                            .collect(),
+                        created: container.created.unwrap_or_default(),
+                    })
+                    .collect();
+
+                Ok(container_infos)
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                // Para contexto remoto, usa o adapter
+                adapter.list_containers().await
+                    .context("Falha ao listar containers remotos")
+            }
+        }
+    }
+
+    /// Inicia um container (local ou remoto)
+    pub async fn start_container(&self, container_name: &str) -> Result<()> {
+        match &self.context {
+            DockerExecutionContext::Local(_) => {
+                let output = Command::new("docker")
+                    .args(&["start", container_name])
+                    .output()
+                    .context("Failed to execute docker start command")?;
+
+                if !output.status.success() {
+                    return Err(anyhow::anyhow!(
+                        "Failed to start container {}: {}",
+                        container_name,
+                        String::from_utf8_lossy(&output.stderr)
+                    ));
+                }
+
+                Ok(())
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                adapter.start_container(container_name).await
+                    .context("Falha ao iniciar container remoto")
+            }
+        }
+    }
+
+    /// Lista todas as imagens (local ou remoto)
+    pub async fn list_images(&self) -> Result<Vec<ImageInfo>> {
+        match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                let images = docker
+                    .list_images(Some(ListImagesOptions {
+                        all: false,
+                        ..Default::default()
+                    }))
+                    .await
+                    .context("Falha ao listar imagens")?;
+
+                let mut image_infos: Vec<ImageInfo> = images
+                    .into_iter()
+                    .map(|image: ImageSummary| {
+                        let in_use = image.containers > 0;
+                        ImageInfo {
+                            id: image.id.clone(),
+                            tags: image.repo_tags.clone(),
+                            created: image.created,
+                            size: image.size,
+                            in_use,
+                        }
+                    })
+                    .collect();
+
+                // Ordena por nome da primeira tag para manter ordem consistente
+                image_infos.sort_by(|a, b| {
+                    let tag_a = a.tags.get(0).cloned().unwrap_or_default();
+                    let tag_b = b.tags.get(0).cloned().unwrap_or_default();
+                    tag_a.cmp(&tag_b)
+                });
+
+                Ok(image_infos)
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                // Para contexto remoto, usa o adapter
+                adapter.list_images().await
+                    .context("Falha ao listar imagens remotas")
+            }
+        }
     }
 
     // deleta uma imagem
+    /// Remove uma imagem (local ou remoto)
     pub async fn remove_image(&self, image_id: &str) -> Result<()> {
-        let output = Command::new("docker")
-            .args(&["rmi", image_id])
-            .output()
-            .context("Failed to execute docker rmi command")?;
+        match &self.context {
+            DockerExecutionContext::Local(_) => {
+                let output = Command::new("docker")
+                    .args(&["rmi", image_id])
+                    .output()
+                    .context("Failed to execute docker rmi command")?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
-            if stderr.contains("conflict")
-                && stderr.contains("image is being used by running container")
-            {
-                return Err(anyhow::anyhow!(
-                    "IN_USE:A imagem está em uso por um contêiner."
-                ));
-            } else {
-                return Err(anyhow::anyhow!(
-                    "OTHER_ERROR:Não foi possível remover a imagem. Tente forçar a remoção."
-                ));
-            }
-        }
-
-        Ok(())
-    }
-
-    // Lista todas as networks
-    pub async fn list_networks(&self) -> Result<Vec<NetworkInfo>> {
-        let networks = self
-            .docker
-            .list_networks(Some(ListNetworksOptions {
-                ..Default::default()
-            }))
-            .await
-            .context("Falha ao listar networks")?;
-
-        let containers = self
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: true,
-                ..Default::default()
-            }))
-            .await
-            .context("Falha ao listar containers")?;
-
-        let network_ids: Vec<String> = containers
-            .into_iter()
-            .flat_map(|container| {
-                container
-                    .network_settings
-                    .and_then(|settings| settings.networks)
-                    .unwrap_or_default()
-                    .into_values()
-                    .filter_map(|endpoint| endpoint.network_id)
-            })
-            .collect();
-
-        let mut network_infos: Vec<NetworkInfo> = networks
-            .into_iter()
-            .filter_map(|network| {
-                let network_name = network.name.as_deref().unwrap_or("");
-                let id = network.id.unwrap_or_default();
-
-                // Filtra networks de sistema (bridge, host, none)
-                let is_system = matches!(network_name, "bridge" | "host" | "none");
-
-                if is_system {
-                    return None; // Pula networks de sistema
-                }
-
-                let mut containers_count = 0;
-
-                for network_id in &network_ids {
-                    if network_id == &id {
-                        containers_count += 1;
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+                    if stderr.contains("conflict")
+                        && stderr.contains("image is being used by running container")
+                    {
+                        return Err(anyhow::anyhow!(
+                            "IN_USE:A imagem está em uso por um contêiner."
+                        ));
+                    } else {
+                        return Err(anyhow::anyhow!(
+                            "OTHER_ERROR:Não foi possível remover a imagem. Tente forçar a remoção."
+                        ));
                     }
                 }
 
-                Some(NetworkInfo {
-                    id,
-                    name: network_name.to_string(),
-                    driver: network.driver.unwrap_or_default(),
-                    scope: network.scope.unwrap_or_default(),
-                    created: network.created.unwrap_or_default(),
-                    containers_count,
-                    is_system: false, // Todas as networks listadas são de usuário
-                })
-            })
-            .collect();
+                Ok(())
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                adapter.remove_image(image_id, false).await
+                    .context("Falha ao remover imagem remota")
+            }
+        }
+    }
 
-        // Ordena por nome para manter ordem consistente
-        network_infos.sort_by(|a, b| a.name.cmp(&b.name));
+    /// Lista todas as networks (local ou remoto)
+    pub async fn list_networks(&self) -> Result<Vec<NetworkInfo>> {
+        match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                let networks = docker
+                    .list_networks(Some(ListNetworksOptions {
+                        ..Default::default()
+                    }))
+                    .await
+                    .context("Falha ao listar networks")?;
 
-        Ok(network_infos)
+                let containers = docker
+                    .list_containers(Some(ListContainersOptions {
+                        all: true,
+                        ..Default::default()
+                    }))
+                    .await
+                    .context("Falha ao listar containers")?;
+
+                let network_ids: Vec<String> = containers
+                    .into_iter()
+                    .flat_map(|container| {
+                        container
+                            .network_settings
+                            .and_then(|settings| settings.networks)
+                            .unwrap_or_default()
+                            .into_values()
+                            .filter_map(|endpoint| endpoint.network_id)
+                    })
+                    .collect();
+
+                let mut network_infos: Vec<NetworkInfo> = networks
+                    .into_iter()
+                    .filter_map(|network| {
+                        let network_name = network.name.as_deref().unwrap_or("");
+                        let id = network.id.unwrap_or_default();
+
+                        // Filtra networks de sistema (bridge, host, none)
+                        let is_system = matches!(network_name, "bridge" | "host" | "none");
+
+                        if is_system {
+                            return None; // Pula networks de sistema
+                        }
+
+                        let mut containers_count = 0;
+
+                        for network_id in &network_ids {
+                            if network_id == &id {
+                                containers_count += 1;
+                            }
+                        }
+
+                        Some(NetworkInfo {
+                            id,
+                            name: network_name.to_string(),
+                            driver: network.driver.unwrap_or_default(),
+                            scope: network.scope.unwrap_or_default(),
+                            created: network.created.unwrap_or_default(),
+                            containers_count,
+                            is_system: false, // Todas as networks listadas são de usuário
+                        })
+                    })
+                    .collect();
+
+                // Ordena por nome para manter ordem consistente
+                network_infos.sort_by(|a, b| a.name.cmp(&b.name));
+
+                Ok(network_infos)
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                // Para contexto remoto, usa o adapter
+                adapter.list_networks().await
+                    .context("Falha ao listar networks remotas")
+            }
+        }
     }
 
     // Remove uma network
@@ -492,66 +828,74 @@ impl DockerManager {
     }
 
     // Lista todos os volumes de containers
+    /// Lista todos os volumes (local ou remoto)
     pub async fn list_volumes(&self) -> Result<Vec<VolumeInfo>> {
-        let volumes = self
-            .docker
-            .list_volumes(Some(ListVolumesOptions {
-                ..Default::default()
-            }))
-            .await
-            .context("Falha ao listar volumes")?;
+        match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                let volumes = docker
+                    .list_volumes(Some(ListVolumesOptions {
+                        ..Default::default()
+                    }))
+                    .await
+                    .context("Falha ao listar volumes")?;
 
-        let containers = self
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: true,
-                ..Default::default()
-            }))
-            .await
-            .context("Falha ao listar containers")?;
+                let containers = docker
+                    .list_containers(Some(ListContainersOptions {
+                        all: true,
+                        ..Default::default()
+                    }))
+                    .await
+                    .context("Falha ao listar containers")?;
 
-        // Coleta nomes de volumes usados pelos containers
-        let mut used_volumes: HashMap<String, i32> = HashMap::new();
-        for container in containers {
-            if let Some(mounts) = container.mounts {
-                for mount in mounts {
-                    if let Some(name) = mount.name {
-                        if let Some(mount_type) = mount.typ.as_ref() {
-                            if format!("{:?}", mount_type)
-                                .to_lowercase()
-                                .contains("volume")
-                            {
-                                *used_volumes.entry(name).or_insert(0) += 1;
+                // Coleta nomes de volumes usados pelos containers
+                let mut used_volumes: HashMap<String, i32> = HashMap::new();
+                for container in containers {
+                    if let Some(mounts) = container.mounts {
+                        for mount in mounts {
+                            if let Some(name) = mount.name {
+                                if let Some(mount_type) = mount.typ.as_ref() {
+                                    if format!("{:?}", mount_type)
+                                        .to_lowercase()
+                                        .contains("volume")
+                                    {
+                                        *used_volumes.entry(name).or_insert(0) += 1;
+                                    }
+                                }
                             }
                         }
                     }
                 }
+
+                let mut volume_infos: Vec<VolumeInfo> = volumes
+                    .volumes
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|volume| {
+                        let volume_name = volume.name.clone();
+                        // Agora inclui TODOS os volumes, mas com contador de containers
+                        let containers_count = used_volumes.get(&volume_name).cloned().unwrap_or(0);
+
+                        VolumeInfo {
+                            name: volume_name,
+                            driver: volume.driver,
+                            mountpoint: volume.mountpoint,
+                            created: volume.created_at.unwrap_or_default(),
+                            containers_count,
+                        }
+                    })
+                    .collect();
+
+                // Ordena por nome para manter ordem consistente
+                volume_infos.sort_by(|a, b| a.name.cmp(&b.name));
+
+                Ok(volume_infos)
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                // Para contexto remoto, usa o adapter
+                adapter.list_volumes().await
+                    .context("Falha ao listar volumes remotos")
             }
         }
-
-        let mut volume_infos: Vec<VolumeInfo> = volumes
-            .volumes
-            .unwrap_or_default()
-            .into_iter()
-            .map(|volume| {
-                let volume_name = volume.name.clone();
-                // Agora inclui TODOS os volumes, mas com contador de containers
-                let containers_count = used_volumes.get(&volume_name).cloned().unwrap_or(0);
-
-                VolumeInfo {
-                    name: volume_name,
-                    driver: volume.driver,
-                    mountpoint: volume.mountpoint,
-                    created: volume.created_at.unwrap_or_default(),
-                    containers_count,
-                }
-            })
-            .collect();
-
-        // Ordena por nome para manter ordem consistente
-        volume_infos.sort_by(|a, b| a.name.cmp(&b.name));
-
-        Ok(volume_infos)
     }
 
     // Remove um volume
@@ -581,21 +925,30 @@ impl DockerManager {
     }
 
     // Para um container
+    /// Para um container (local ou remoto)
     pub async fn stop_container(&self, container_name: &str) -> Result<()> {
-        let output = Command::new("docker")
-            .args(&["stop", container_name])
-            .output()
-            .context("Failed to execute docker stop command")?;
+        match &self.context {
+            DockerExecutionContext::Local(_) => {
+                let output = Command::new("docker")
+                    .args(&["stop", container_name])
+                    .output()
+                    .context("Failed to execute docker stop command")?;
 
-        if !output.status.success() {
-            return Err(anyhow::anyhow!(
-                "Failed to stop container {}: {}",
-                container_name,
-                String::from_utf8_lossy(&output.stderr)
-            ));
+                if !output.status.success() {
+                    return Err(anyhow::anyhow!(
+                        "Failed to stop container {}: {}",
+                        container_name,
+                        String::from_utf8_lossy(&output.stderr)
+                    ));
+                }
+
+                Ok(())
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                adapter.stop_container(container_name).await
+                    .context("Falha ao parar container remoto")
+            }
         }
-
-        Ok(())
     }
 
     // Pausa um container
@@ -652,46 +1005,61 @@ impl DockerManager {
         Ok(())
     }
 
-    // Lista apenas containers em execução
+    /// Lista apenas containers em execução (local ou remoto)
     pub async fn list_running_containers(&self) -> Result<Vec<ContainerInfo>> {
-        let containers = self
-            .docker
-            .list_containers(Some(ListContainersOptions {
-                all: false, // Apenas containers rodando
-                ..Default::default()
-            }))
-            .await
-            .context("Falha ao listar containers ativos")?;
+        match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                let containers = docker
+                    .list_containers(Some(ListContainersOptions {
+                        all: false, // Apenas containers rodando
+                        ..Default::default()
+                    }))
+                    .await
+                    .context("Falha ao listar containers ativos")?;
 
-        let container_infos: Vec<ContainerInfo> = containers
-            .into_iter()
-            .map(|container| ContainerInfo {
-                id: container.id.unwrap_or_default(),
-                name: container
-                    .names
-                    .unwrap_or_default()
-                    .join(", ")
-                    .trim_start_matches('/')
-                    .to_string(),
-                image: container.image.unwrap_or_default(),
-                state: container
-                    .state
-                    .map_or("unknown".to_string(), |s| s.to_string()),
-                status: container.status.unwrap_or_default(),
-                ports: container
-                    .ports
-                    .unwrap_or_default()
-                    .iter()
-                    .filter_map(|port| port.public_port.map(|p| p as i32))
-                    .collect(),
-                created: container.created.unwrap_or_default(),
-            })
-            .collect();
+                let container_infos: Vec<ContainerInfo> = containers
+                    .into_iter()
+                    .map(|container| ContainerInfo {
+                        id: container.id.unwrap_or_default(),
+                        name: container
+                            .names
+                            .unwrap_or_default()
+                            .join(", ")
+                            .trim_start_matches('/')
+                            .to_string(),
+                        image: container.image.unwrap_or_default(),
+                        state: container
+                            .state
+                            .map_or("unknown".to_string(), |s| s.to_string()),
+                        status: container.status.unwrap_or_default(),
+                        ports: container
+                            .ports
+                            .unwrap_or_default()
+                            .iter()
+                            .filter_map(|port| port.public_port.map(|p| p as i32))
+                            .collect(),
+                        created: container.created.unwrap_or_default(),
+                    })
+                    .collect();
 
-        Ok(container_infos)
+                Ok(container_infos)
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                // Para remoto, filtra apenas containers em execução
+                let all_containers = adapter.list_containers().await
+                    .context("Falha ao listar containers remotos ativos")?;
+                
+                let running_containers = all_containers
+                    .into_iter()
+                    .filter(|container| container.state == "running")
+                    .collect();
+                
+                Ok(running_containers)
+            }
+        }
     }
 
-    // Coleta uso total do sistema Docker
+    /// Coleta uso total do sistema Docker (local ou remoto)
     pub async fn get_docker_system_usage(&mut self) -> Result<DockerSystemUsage> {
         let containers = self.list_running_containers().await?;
         let mut containers_stats = Vec::new();
@@ -713,62 +1081,88 @@ impl DockerManager {
 
         // Itera por todos os containers coletando estatísticas
         for container in containers {
-            if let Ok(Some(stats)) = self
-                .docker
-                .stats(
-                    &container.id,
-                    Some(StatsOptions {
-                        stream: false,
-                        one_shot: true,
-                    }),
-                )
-                .try_next()
-                .await
-            {
-                let cpu =
-                    self.calculate_cpu_percentage_with_cache(&container.id, &stats, current_time);
-                let cpu_percentage = cpu.usage_cpu;
-                let cpus_online = cpu.online_cpus;
-                let memory_usage = stats
-                    .memory_stats
-                    .as_ref()
-                    .and_then(|m| m.usage)
-                    .unwrap_or(0);
-                let memory_limit = stats
-                    .memory_stats
-                    .as_ref()
-                    .and_then(|m| m.limit)
-                    .unwrap_or(0);
+            match &self.context {
+                DockerExecutionContext::Local(docker) => {
+                    if let Ok(Some(stats)) = docker
+                        .stats(
+                            &container.id,
+                            Some(StatsOptions {
+                                stream: false,
+                                one_shot: true,
+                            }),
+                        )
+                        .try_next()
+                        .await
+                    {
+                        let cpu =
+                            self.calculate_cpu_percentage_with_cache(&container.id, &stats, current_time);
+                        let cpu_percentage = cpu.usage_cpu;
+                        let cpus_online = cpu.online_cpus;
+                        let memory_usage = stats
+                            .memory_stats
+                            .as_ref()
+                            .and_then(|m| m.usage)
+                            .unwrap_or(0);
+                        let memory_limit = stats
+                            .memory_stats
+                            .as_ref()
+                            .and_then(|m| m.limit)
+                            .unwrap_or(0);
 
-                let memory_percentage = if memory_limit > 0 {
-                    (memory_usage as f64 / memory_limit as f64) * 100.0
-                } else {
-                    0.0
-                };
+                        let memory_percentage = if memory_limit > 0 {
+                            (memory_usage as f64 / memory_limit as f64) * 100.0
+                        } else {
+                            0.0
+                        };
 
-                let (network_rx, network_tx) = self.get_network_stats(&stats);
-                let (block_read, block_write) = self.get_block_stats(&stats);
+                        let (network_rx, network_tx) = self.get_network_stats(&stats);
+                        let (block_read, block_write) = self.get_block_stats(&stats);
 
-                containers_stats.push(ContainerStats {
-                    id: container.id.clone(),
-                    name: container.name.clone(),
-                    cpu_percentage,
-                    memory_usage,
-                    memory_limit,
-                    memory_percentage,
-                    network_rx,
-                    network_tx,
-                    block_read,
-                    block_write,
-                });
+                        containers_stats.push(ContainerStats {
+                            id: container.id.clone(),
+                            name: container.name.clone(),
+                            cpu_percentage,
+                            memory_usage,
+                            memory_limit,
+                            memory_percentage,
+                            network_rx,
+                            network_tx,
+                            block_read,
+                            block_write,
+                        });
 
-                online_cpu = cpus_online;
-                total_cpu += cpu_percentage;
-                total_memory_usage += memory_usage;
-                total_network_rx += network_rx;
-                total_network_tx += network_tx;
-                total_block_read += block_read;
-                total_block_write += block_write;
+                        online_cpu = cpus_online;
+                        total_cpu += cpu_percentage;
+                        total_memory_usage += memory_usage;
+                        total_network_rx += network_rx;
+                        total_network_tx += network_tx;
+                        total_block_read += block_read;
+                        total_block_write += block_write;
+                    }
+                }
+                DockerExecutionContext::Remote { adapter, .. } => {
+                    // Para remoto, obtém estatísticas via SSH
+                    if let Ok(_stats_json) = adapter.get_container_stats(&container.id).await {
+                        // Placeholder - parsing de estatísticas remotas
+                        // Em implementação real, faria parsing do JSON retornado
+                        
+                        // Adiciona estatísticas básicas como placeholder
+                        containers_stats.push(ContainerStats {
+                            id: container.id.clone(),
+                            name: container.name.clone(),
+                            cpu_percentage: 0.0,
+                            memory_usage: 0,
+                            memory_limit: 0,
+                            memory_percentage: 0.0,
+                            network_rx: 0,
+                            network_tx: 0,
+                            block_read: 0,
+                            block_write: 0,
+                        });
+                        
+                        online_cpu = 1; // Placeholder
+                    }
+                }
             }
         }
 
@@ -982,13 +1376,21 @@ impl DockerManager {
 
     // Função auxiliar para obter limite de memória do sistema
     async fn get_system_memory_limit(&self) -> Result<u64> {
-        match self.docker.info().await {
-            Ok(info) => {
-                // Tenta obter memória total do sistema via Docker info
-                Ok(info.mem_total.unwrap_or(0) as u64)
+        match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                match docker.info().await {
+                    Ok(info) => {
+                        // Tenta obter memória total do sistema via Docker info
+                        Ok(info.mem_total.unwrap_or(0) as u64)
+                    }
+                    Err(_) => {
+                        // Fallback: lê do sistema de arquivos Linux
+                        self.get_system_memory_from_meminfo()
+                    }
+                }
             }
-            Err(_) => {
-                // Fallback: lê do sistema de arquivos Linux
+            DockerExecutionContext::Remote { .. } => {
+                // Para conexões remotas, use fallback
                 self.get_system_memory_from_meminfo()
             }
         }
@@ -1073,75 +1475,96 @@ impl DockerManager {
     //     Ok(())
     // }
 
+    /// Reinicia um container (local ou remoto)
     pub async fn restart_container(&self, container_id: &str) -> Result<()> {
-        self.docker
-            .restart_container(container_id, None::<RestartContainerOptions>)
-            .await
-            .context(format!("Falha ao reiniciar container: {}", container_id))?;
-
-        Ok(())
+        match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                docker
+                    .restart_container(container_id, None::<RestartContainerOptions>)
+                    .await
+                    .context(format!("Falha ao reiniciar container: {}", container_id))?;
+                Ok(())
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                adapter.restart_container(container_id).await
+                    .context("Falha ao reiniciar container remoto")
+            }
+        }
     }
 
     // Obter logs de um container com paginação
+    /// Obtém logs de container (local ou remoto)
     pub async fn get_container_logs(
         &self,
         container_name: &str,
         tail_lines: Option<String>,
     ) -> Result<String> {
-        use bollard::query_parameters::LogsOptions;
-        use futures_util::StreamExt;
+        match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                use bollard::query_parameters::LogsOptions;
+                use futures_util::StreamExt;
 
-        let logs_options = LogsOptions {
-            stdout: true,
-            stderr: true,
-            tail: tail_lines.unwrap_or_else(|| "50".to_string()), // Padrão: últimas 50 linhas
-            timestamps: true,
-            ..Default::default()
-        };
+                let logs_options = LogsOptions {
+                    stdout: true,
+                    stderr: true,
+                    tail: tail_lines.unwrap_or_else(|| "50".to_string()), // Padrão: últimas 50 linhas
+                    timestamps: true,
+                    ..Default::default()
+                };
 
-        let mut logs_stream = self.docker.logs(container_name, Some(logs_options));
+                let mut logs_stream = docker.logs(container_name, Some(logs_options));
 
-        let mut logs = String::new();
-        while let Some(log_result) = logs_stream.next().await {
-            match log_result {
-                Ok(log_output) => {
-                    logs.push_str(&log_output.to_string());
+                let mut logs = String::new();
+                while let Some(log_result) = logs_stream.next().await {
+                    match log_result {
+                        Ok(log_output) => {
+                            logs.push_str(&log_output.to_string());
+                        }
+                        Err(_) => break,
+                    }
                 }
-                Err(_) => break,
+
+                // Processa e formata os logs com timestamp
+                let formatted_logs = logs
+                    .lines()
+                    .filter_map(|line| {
+                        if line.len() > 30 {
+                            // Tenta extrair o timestamp (formato: 2023-01-01T00:00:00.000000000Z)
+                            let timestamp_str = &line[0..30];
+                            let message = if line.len() > 31 { &line[31..] } else { "" };
+
+                            // Parse do timestamp ISO 8601 usando chrono
+                            if let Ok(utc_time) = timestamp_str.parse::<chrono::DateTime<chrono::Utc>>() {
+                                let local_time = utc_time.with_timezone(&chrono::Local);
+                                let formatted_time = local_time.format("%H:%M:%S").to_string();
+                                Some(format!("[{}] {}", formatted_time, message))
+                            } else {
+                                // Se não conseguir parsear timestamp, retorna a linha original sem timestamp
+                                Some(message.to_string())
+                            }
+                        } else {
+                            // Linha muito curta, provavelmente não tem timestamp
+                            Some(line.to_string())
+                        }
+                    })
+                    .collect::<Vec<String>>()
+                    .join("\n");
+
+                Ok(if formatted_logs.trim().is_empty() {
+                    "Nenhum log disponível".to_string()
+                } else {
+                    formatted_logs
+                })
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                // Para remoto, usa adapter SSH
+                let lines_count = tail_lines
+                    .and_then(|s| s.parse::<usize>().ok());
+                
+                adapter.get_container_logs(container_name, lines_count).await
+                    .context("Falha ao obter logs de container remoto")
             }
         }
-
-        // Processa e formata os logs com timestamp
-        let formatted_logs = logs
-            .lines()
-            .filter_map(|line| {
-                if line.len() > 30 {
-                    // Tenta extrair o timestamp (formato: 2023-01-01T00:00:00.000000000Z)
-                    let timestamp_str = &line[0..30];
-                    let message = if line.len() > 31 { &line[31..] } else { "" };
-
-                    // Parse do timestamp ISO 8601 usando chrono
-                    if let Ok(utc_time) = timestamp_str.parse::<chrono::DateTime<chrono::Utc>>() {
-                        let local_time = utc_time.with_timezone(&chrono::Local);
-                        let formatted_time = local_time.format("%H:%M:%S").to_string();
-                        Some(format!("[{}] {}", formatted_time, message))
-                    } else {
-                        // Se não conseguir parsear timestamp, retorna a linha original sem timestamp
-                        Some(message.to_string())
-                    }
-                } else {
-                    // Linha muito curta, provavelmente não tem timestamp
-                    Some(line.to_string())
-                }
-            })
-            .collect::<Vec<String>>()
-            .join("\n");
-
-        Ok(if formatted_logs.trim().is_empty() {
-            "Nenhum log disponível".to_string()
-        } else {
-            formatted_logs
-        })
     }
 
     // Obter logs anteriores de um container (para infinite scroll)
@@ -1201,87 +1624,109 @@ impl DockerManager {
     // }
 
     // Obter estatísticas de um container específico
+    /// Obtém estatísticas de um container específico (local ou remoto)
     pub async fn get_single_container_stats(
         &mut self,
         container_name: &str,
     ) -> Result<(f64, u64, String, String, String)> {
-        use bollard::query_parameters::StatsOptions;
-        use futures_util::StreamExt;
+        match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                use bollard::query_parameters::StatsOptions;
+                use futures_util::StreamExt;
 
-        let stats_options = Some(StatsOptions {
-            stream: false,
-            one_shot: true,
-        });
+                let stats_options = Some(StatsOptions {
+                    stream: false,
+                    one_shot: true,
+                });
 
-        let mut stats_stream = self.docker.stats(container_name, stats_options);
+                let mut stats_stream = docker.stats(container_name, stats_options);
 
-        if let Some(stats_result) = stats_stream.next().await {
-            match stats_result {
-                Ok(stats) => {
-                    // Calcula CPU usando função existente
-                    let current_time = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs();
-                    let cpu_calc = self.calculate_cpu_percentage_with_cache(
-                        container_name,
-                        &stats,
-                        current_time,
-                    );
-                    let cpu_usage = cpu_calc.usage_cpu;
-                    let cpu_online = cpu_calc.online_cpus;
+                if let Some(stats_result) = stats_stream.next().await {
+                    match stats_result {
+                        Ok(stats) => {
+                            // Calcula CPU usando função existente
+                            let current_time = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs();
+                            let cpu_calc = self.calculate_cpu_percentage_with_cache(
+                                container_name,
+                                &stats,
+                                current_time,
+                            );
+                            let cpu_usage = cpu_calc.usage_cpu;
+                            let cpu_online = cpu_calc.online_cpus;
 
-                    // Calcula memória
-                    let memory_stats = stats.memory_stats.as_ref().cloned().unwrap_or_default();
-                    let memory_usage = memory_stats.usage.unwrap_or(0);
-                    let memory_limit = memory_stats.limit.unwrap_or(0);
+                            // Calcula memória
+                            let memory_stats = stats.memory_stats.as_ref().cloned().unwrap_or_default();
+                            let memory_usage = memory_stats.usage.unwrap_or(0);
+                            let memory_limit = memory_stats.limit.unwrap_or(0);
 
-                    let memory_usage_mb = memory_usage as f64 / 1024.0 / 1024.0;
-                    let memory_limit_mb = memory_limit as f64 / 1024.0 / 1024.0;
-                    let memory_percentage = if memory_limit > 0 {
-                        (memory_usage as f64 / memory_limit as f64) * 100.0
-                    } else {
-                        0.0
-                    };
+                            let memory_usage_mb = memory_usage as f64 / 1024.0 / 1024.0;
+                            let memory_limit_mb = memory_limit as f64 / 1024.0 / 1024.0;
+                            let memory_percentage = if memory_limit > 0 {
+                                (memory_usage as f64 / memory_limit as f64) * 100.0
+                            } else {
+                                0.0
+                            };
 
-                    let memory_str = if memory_usage_mb >= 1024.0 || memory_limit_mb >= 1024.0 {
-                        let memory_usage_gb = memory_usage_mb / 1024.0;
-                        let memory_limit_gb = memory_limit_mb / 1024.0;
+                            let memory_str = if memory_usage_mb >= 1024.0 || memory_limit_mb >= 1024.0 {
+                                let memory_usage_gb = memory_usage_mb / 1024.0;
+                                let memory_limit_gb = memory_limit_mb / 1024.0;
 
-                        if memory_usage_mb >= 1024.0 && memory_limit_mb >= 1024.0 {
-                            format!(
-                                "{:.1}% ({:.1} GB / {:.1} GB)",
-                                memory_percentage, memory_usage_gb, memory_limit_gb
-                            )
-                        } else if memory_usage_mb >= 1024.0 {
-                            format!(
-                                "{:.1}% ({:.1} GB / {:.0} MB)",
-                                memory_percentage, memory_usage_gb, memory_limit_mb
-                            )
-                        } else {
-                            format!(
-                                "{:.1}% ({:.0} MB / {:.1} GB)",
-                                memory_percentage, memory_usage_mb, memory_limit_gb
-                            )
+                                if memory_usage_mb >= 1024.0 && memory_limit_mb >= 1024.0 {
+                                    format!(
+                                        "{:.1}% ({:.1} GB / {:.1} GB)",
+                                        memory_percentage, memory_usage_gb, memory_limit_gb
+                                    )
+                                } else if memory_usage_mb >= 1024.0 {
+                                    format!(
+                                        "{:.1}% ({:.1} GB / {:.0} MB)",
+                                        memory_percentage, memory_usage_gb, memory_limit_mb
+                                    )
+                                } else {
+                                    format!(
+                                        "{:.1}% ({:.0} MB / {:.1} GB)",
+                                        memory_percentage, memory_usage_mb, memory_limit_gb
+                                    )
+                                }
+                            } else {
+                                format!(
+                                    "{:.1}% ({:.0} MB / {:.0} MB)",
+                                    memory_percentage, memory_usage_mb, memory_limit_mb
+                                )
+                            };
+
+                            // Calcula network
+                            let (rx, tx) = self.get_network_stats(&stats);
+                            let rx_str = self.format_bytes_rate(rx);
+                            let tx_str = self.format_bytes_rate(tx);
+
+                            Ok((cpu_usage, cpu_online, memory_str, rx_str, tx_str))
                         }
-                    } else {
-                        format!(
-                            "{:.1}% ({:.0} MB / {:.0} MB)",
-                            memory_percentage, memory_usage_mb, memory_limit_mb
-                        )
-                    };
-
-                    // Calcula network
-                    let (rx, tx) = self.get_network_stats(&stats);
-                    let rx_str = self.format_bytes_rate(rx);
-                    let tx_str = self.format_bytes_rate(tx);
-
-                    Ok((cpu_usage, cpu_online, memory_str, rx_str, tx_str))
+                        Err(e) => Err(anyhow::anyhow!("Erro ao obter stats do container: {}", e)),
+                    }
+                } else {
+                    Err(anyhow::anyhow!("Nenhum stat recebido para o container"))
                 }
-                Err(e) => Err(anyhow::anyhow!("Erro ao obter stats do container: {}", e)),
             }
-        } else {
-            Err(anyhow::anyhow!("Nenhum stat recebido para o container"))
+            DockerExecutionContext::Remote { adapter, .. } => {
+                // Para remoto, usa adapter SSH
+                match adapter.get_container_stats(container_name).await {
+                    Ok(_stats_json) => {
+                        // Placeholder - parsing de estatísticas remotas
+                        // Em implementação real, faria parsing do JSON e cálculos similares
+                        Ok((
+                            0.0, // CPU usage placeholder
+                            1,   // CPU online placeholder
+                            "0.0% (0 MB / 0 MB)".to_string(), // Memory placeholder
+                            "0 B/s".to_string(), // RX placeholder
+                            "0 B/s".to_string(), // TX placeholder
+                        ))
+                    }
+                    Err(e) => Err(anyhow::anyhow!("Erro ao obter stats do container remoto: {}", e)),
+                }
+            }
         }
     }
 
@@ -1400,11 +1845,17 @@ impl DockerManager {
         };
 
         // Cria o container
-        let response = self
-            .docker
-            .create_container(Some(options), config)
-            .await
-            .context("Falha ao criar container")?;
+        let response = match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                docker
+                    .create_container(Some(options), config)
+                    .await
+                    .context("Falha ao criar container")?
+            }
+            DockerExecutionContext::Remote { adapter, .. } => {
+                return Err(anyhow::anyhow!("Criação de container remoto não implementada"));
+            }
+        };
 
         // Inicia o container automaticamente
         self.start_container(&response.id)
@@ -1440,7 +1891,14 @@ impl DockerManager {
             ..Default::default()
         };
 
-        let mut stream = self.docker.create_image(Some(options), None, None);
+        let mut stream = match &self.context {
+            DockerExecutionContext::Local(docker) => {
+                docker.create_image(Some(options), None, None)
+            }
+            DockerExecutionContext::Remote { .. } => {
+                return Err(anyhow::anyhow!("Download de imagem remoto não implementado"));
+            }
+        };
 
         while let Some(result) = stream.next().await {
             match result {

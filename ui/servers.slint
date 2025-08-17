@@ -1,0 +1,653 @@
+struct ServerData {
+    id: string,
+    name: string,
+    server_type: string, // "Local" ou "Remote"
+    host: string,
+    port: int,
+    username: string,
+    description: string,
+    is_active: bool,
+    is_connected: bool,
+    last_connected: string,
+    docker_version: string,
+    containers_count: int,
+    images_count: int,
+    networks_count: int,
+    volumes_count: int,
+}
+
+component Button inherits Rectangle {
+    in property <string> text;
+    in property <bool> active: false;
+    in property <length> size_w: 80px;
+    in property <length> size_h: 32px;
+    in property <brush> bg: #2e3030;
+    in property <brush> text_color: #ffffff;
+    callback clicked <=> touch.clicked;
+
+    height: size_h;
+    width: size_w;
+    background: root.active ? #0ea5e9 : bg;
+    border-radius: 6px;
+    border-width: root.active ? 2px : 0px;
+    border-color: #0ea5e9;
+
+    touch := TouchArea { }
+
+    Text {
+        text: root.text;
+        color: root.text_color;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 14px;
+        x: 8px;
+        y: 0px;
+        width: parent.width - 16px;
+        height: parent.height;
+    }
+}
+
+component StatusIndicator inherits Rectangle {
+    in property <string> status;
+
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background: status == "connected" ? #10b981 : status == "connecting" ? #f59e0b : status == "disconnected" ? #6b7280 : #ef4444;
+}
+
+component ServerTypeIcon inherits Rectangle {
+    in property <string> server_type;
+
+    width: 16px;
+    height: 16px;
+    background: transparent;
+
+    Text {
+        text: server_type == "Local" ? "🏠" : "🌐";
+        color: #ffffff;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component ServerItem inherits Rectangle {
+    in property <ServerData> server;
+    in property <string> loading-action;
+    in property <bool> is_selected: false;
+    callback server-action(string, string);
+    callback view-server-details(ServerData);
+    callback edit-server(ServerData);
+
+    height: 120px;
+    background: root.is_selected ? #2a2d2d : #232424;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: #464747;
+
+    // Hover effect
+    touch := TouchArea {
+        clicked => {
+            root.view-server-details(root.server);
+        }
+    }
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+
+        // Header do server com nome e tipo
+        HorizontalLayout {
+            alignment: space-between;
+
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+
+                ServerTypeIcon {
+                    server_type: root.server.server_type;
+                }
+
+                Text {
+                    text: root.server.name;
+                    color: #ffffff;
+                    font-size: 16px;
+                    font-weight: 600;
+                    overflow: elide;
+                }
+
+                StatusIndicator {
+                    status: root.server.is_connected ? "connected" : "disconnected";
+                }
+            }
+
+            // Botões de ação
+            HorizontalLayout {
+                spacing: 6px;
+
+                if root.server.server_type == "Remote": Button {
+                    text: root.server.is_connected ? "Desconectar" : "Conectar";
+                    size_w: 90px;
+                    size_h: 24px;
+                    bg: root.server.is_connected ? #dc2626 : #16a34a;
+                    clicked => {
+                        root.server-action(root.server.id, root.server.is_connected ? "disconnect" : "connect");
+                    }
+                }
+
+                Button {
+                    text: "Editar";
+                    size_w: 60px;
+                    size_h: 24px;
+                    bg: #1f2937;
+                    clicked => {
+                        root.edit-server(root.server);
+                    }
+                }
+
+                if root.server.server_type == "Remote": Button {
+                    text: "Remover";
+                    size_w: 70px;
+                    size_h: 24px;
+                    bg: #dc2626;
+                    clicked => {
+                        root.server-action(root.server.id, "remove");
+                    }
+                }
+            }
+        }
+
+        // Informações do servidor
+        HorizontalLayout {
+            spacing: 20px;
+
+            VerticalLayout {
+                spacing: 4px;
+                width: 50%;
+
+                if root.server.server_type == "Remote": HorizontalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Host:";
+                        color: #9ca3af;
+                        font-size: 12px;
+                        width: 60px;
+                    }
+
+                    Text {
+                        text: root.server.host + ":" + root.server.port;
+                        color: #ffffff;
+                        font-size: 12px;
+                        overflow: elide;
+                    }
+                }
+
+                if root.server.server_type == "Remote": HorizontalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Usuário:";
+                        color: #9ca3af;
+                        font-size: 12px;
+                        width: 60px;
+                    }
+
+                    Text {
+                        text: root.server.username;
+                        color: #ffffff;
+                        font-size: 12px;
+                        overflow: elide;
+                    }
+                }
+
+                if root.server.description != "": HorizontalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Desc:";
+                        color: #9ca3af;
+                        font-size: 12px;
+                        width: 60px;
+                    }
+
+                    Text {
+                        text: root.server.description;
+                        color: #ffffff;
+                        font-size: 12px;
+                        overflow: elide;
+                    }
+                }
+            }
+
+            // Estatísticas do servidor
+            VerticalLayout {
+                spacing: 4px;
+                width: 50%;
+
+                if root.server.docker_version != "": HorizontalLayout {
+                    spacing: 8px;
+
+                    Text {
+                        text: "Docker:";
+                        color: #9ca3af;
+                        font-size: 12px;
+                        width: 50px;
+                    }
+
+                    Text {
+                        text: root.server.docker_version;
+                        color: #ffffff;
+                        font-size: 12px;
+                        overflow: elide;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "📦";
+                            font-size: 12px;
+                        }
+
+                        Text {
+                            text: root.server.containers_count;
+                            color: #10b981;
+                            font-size: 12px;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "💿";
+                            font-size: 12px;
+                        }
+
+                        Text {
+                            text: root.server.images_count;
+                            color: #3b82f6;
+                            font-size: 12px;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "🌐";
+                            font-size: 12px;
+                        }
+
+                        Text {
+                            text: root.server.networks_count;
+                            color: #8b5cf6;
+                            font-size: 12px;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "💾";
+                            font-size: 12px;
+                        }
+
+                        Text {
+                            text: root.server.volumes_count;
+                            color: #f59e0b;
+                            font-size: 12px;
+                        }
+                    }
+                }
+
+                if root.server.last_connected != "": Text {
+                    text: "Último acesso: " + root.server.last_connected;
+                    color: #6b7280;
+                    font-size: 11px;
+                    overflow: elide;
+                }
+            }
+        }
+    }
+}
+
+export component ServersList inherits Rectangle {
+    // Propriedades dos servidores
+    in-out property <[ServerData]> servers;
+    in-out property <string> server-list-error: "";
+    in-out property <string> server_success_message: "";
+    in-out property <string> server_error_message: "";
+    in-out property <string> loading-action: "";
+    in-out property <ServerData> selected-server;
+
+    // Callbacks
+    callback refresh-clicked();
+    callback server-action(string, string);
+    callback view-server-details(ServerData);
+    callback edit-server(ServerData);
+    callback add-server-clicked();
+    callback export-config-clicked();
+    callback import-config-clicked();
+
+    background: #1A1B1B;
+
+    VerticalLayout {
+        padding: 24px;
+        spacing: 16px;
+
+        // Header da tela
+        HorizontalLayout {
+            spacing: 16px;
+            alignment: space-between;
+
+            HorizontalLayout {
+                spacing: 16px;
+
+                Text {
+                    text: "Gerenciamento de Servidores";
+                    color: #ffffff;
+                    font-size: 24px;
+                    font-weight: 600;
+                }
+
+                Text {
+                    text: "(" + root.servers.length + " servidores)";
+                    color: #6b7280;
+                    font-size: 16px;
+                    vertical-alignment: center;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 12px;
+
+                Button {
+                    text: "Adicionar Servidor";
+                    size_w: 140px;
+                    size_h: 36px;
+                    bg: #16a34a;
+                    clicked => {
+                        root.add-server-clicked();
+                    }
+                }
+
+                Button {
+                    text: "Exportar Config";
+                    size_w: 120px;
+                    size_h: 36px;
+                    bg: #1f2937;
+                    clicked => {
+                        root.export-config-clicked();
+                    }
+                }
+
+                Button {
+                    text: "Importar Config";
+                    size_w: 120px;
+                    size_h: 36px;
+                    bg: #1f2937;
+                    clicked => {
+                        root.import-config-clicked();
+                    }
+                }
+
+                Button {
+                    text: "Atualizar";
+                    size_w: 80px;
+                    size_h: 36px;
+                    bg: #0ea5e9;
+                    clicked => {
+                        root.refresh-clicked();
+                    }
+                }
+            }
+        }
+
+        // Filtros e estatísticas
+        Rectangle {
+            height: 60px;
+            background: #232424;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #464747;
+
+            HorizontalLayout {
+                padding: 16px;
+                spacing: 24px;
+                alignment: space-between;
+
+                HorizontalLayout {
+                    spacing: 24px;
+
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Servidores Conectados";
+                            color: #9ca3af;
+                            font-size: 12px;
+                        }
+
+                        Text {
+                            text: "0"; // Placeholder - implementação de contagem seria feita no backend
+                            color: #10b981;
+                            font-size: 18px;
+                            font-weight: 600;
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Servidores Remotos";
+                            color: #9ca3af;
+                            font-size: 12px;
+                        }
+
+                        Text {
+                            text: "0"; // Placeholder - implementação de contagem seria feita no backend
+                            color: #3b82f6;
+                            font-size: 18px;
+                            font-weight: 600;
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Containers Totais";
+                            color: #9ca3af;
+                            font-size: 12px;
+                        }
+
+                        Text {
+                            text: "0"; // Placeholder - implementação de contagem seria feita no backend
+                            color: #f59e0b;
+                            font-size: 18px;
+                            font-weight: 600;
+                        }
+                    }
+
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Images Totais";
+                            color: #9ca3af;
+                            font-size: 12px;
+                        }
+
+                        Text {
+                            text: "0"; // Placeholder - implementação de contagem seria feita no backend
+                            color: #8b5cf6;
+                            font-size: 18px;
+                            font-weight: 600;
+                        }
+                    }
+                }
+
+                if root.loading-action != "": HorizontalLayout {
+                    spacing: 8px;
+
+                    Rectangle {
+                        width: 16px;
+                        height: 16px;
+                        border-radius: 8px;
+                        background: #0ea5e9;
+                        // Animação de loading seria adicionada aqui
+                    }
+
+                    Text {
+                        text: "Executando: " + root.loading-action;
+                        color: #0ea5e9;
+                        font-size: 14px;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // Lista de servidores
+        Rectangle {
+            height: parent.height - 140px;
+            clip: true;
+
+            VerticalLayout {
+                spacing: 12px;
+                alignment: start;
+
+                if root.servers.length == 0: Rectangle {
+                    height: 200px;
+                    background: transparent;
+
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 16px;
+
+                        Text {
+                            text: "Nenhum servidor configurado";
+                            color: #6b7280;
+                            font-size: 18px;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: "Clique em 'Adicionar Servidor' para começar";
+                            color: #9ca3af;
+                            font-size: 14px;
+                            horizontal-alignment: center;
+                        }
+                    }
+                }
+
+                for server[i] in root.servers: ServerItem {
+                    server: server;
+                    loading-action: root.loading-action;
+                    is_selected: root.selected-server.id == server.id;
+
+                    server-action(id, action) => {
+                        root.server-action(id, action);
+                    }
+
+                    view-server-details(server_data) => {
+                        root.selected-server = server_data;
+                        root.view-server-details(server_data);
+                    }
+
+                    edit-server(server_data) => {
+                        root.edit-server(server_data);
+                    }
+                }
+            }
+        }
+
+        // Mensagens de erro/sucesso
+        if root.server-list-error != "": Rectangle {
+            height: 40px;
+            background: #7f1d1d;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: #dc2626;
+
+            HorizontalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                Text {
+                    text: "❌";
+                    font-size: 16px;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: root.server-list-error;
+                    color: #ffffff;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        if root.server_success_message != "": Rectangle {
+            height: 40px;
+            background: #065f46;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: #10b981;
+
+            HorizontalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                Text {
+                    text: "✅";
+                    font-size: 16px;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: root.server_success_message;
+                    color: #ffffff;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+            }
+        }
+
+        if root.server_error_message != "": Rectangle {
+            height: 40px;
+            background: #7f1d1d;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: #dc2626;
+
+            HorizontalLayout {
+                padding: 12px;
+                spacing: 8px;
+
+                Text {
+                    text: "❌";
+                    font-size: 16px;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: root.server_error_message;
+                    color: #ffffff;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}
