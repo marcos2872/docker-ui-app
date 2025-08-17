@@ -1,0 +1,117 @@
+// Componente de notificação tooltip
+
+export component NotificationTooltip inherits Rectangle {
+    in-out property <string> message: "";
+    in-out property <bool> is-error: false;
+    in-out property <bool> show-notification: false;
+    in-out property <duration> show-duration: 3s;
+
+    callback auto-hide();
+
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    z: 1000; // Força z-index alto para aparecer acima de tudo
+
+    Rectangle {
+        x: root.width - self.width - 20px;
+        y: 20px;
+        width: 450px;
+        height: content-layout.preferred-height + 32px;
+        background: is-error ? #ef4444 : #059669;
+        border-radius: 8px;
+        border-width: 1px;
+        border-color: is-error ? #ef6666 : #047857;
+        drop-shadow-blur: 8px;
+        drop-shadow-color: rgba(0, 0, 0, 0.2);
+        drop-shadow-offset-x: 0px;
+        drop-shadow-offset-y: 2px;
+
+        // Animação de entrada
+        animate x {
+            duration: 300ms;
+            easing: ease-out;
+        }
+
+        animate y {
+            duration: 300ms;
+            easing: ease-out;
+        }
+
+        content-layout := HorizontalLayout {
+            padding: 16px;
+            spacing: 12px;
+            alignment: start;
+
+            // // Ícone
+            // Rectangle {
+            //     width: 24px;
+            //     height: 24px;
+            //     border-radius: 12px;
+            //     background: rgba(255, 255, 255, 0.2);
+
+            //     Text {
+            //         text: is-error ? "✖" : "✓";
+            //         color: #ffffff;
+            //         font-size: 14px;
+            //         font-weight: 600;
+            //         horizontal-alignment: center;
+            //         vertical-alignment: center;
+            //     }
+            // }
+
+            // Conteúdo da mensagem
+            VerticalLayout {
+                spacing: 4px;
+                horizontal-stretch: 1;
+
+                Text {
+                    text: is-error ? "Erro" : "Sucesso";
+                    color: #ffffff;
+                    font-size: 14px;
+                    font-weight: 600;
+                }
+
+                Text {
+                    text: message;
+                    color: rgba(255, 255, 255, 0.9);
+                    font-size: 14px;
+                    wrap: word-wrap;
+                    max-width: 350px;
+                }
+            }
+
+            // Botão fechar
+            Rectangle {
+                width: 24px;
+                height: 24px;
+                border-radius: 12px;
+                background: rgba(255, 255, 255, 0.2);
+
+                TouchArea {
+                    clicked => {
+                        auto-hide();
+                    }
+                }
+
+                Text {
+                    text: "X";
+                    color: rgba(255, 255, 255, 0.8);
+                    font-size: 16px;
+                    font-weight: 600;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Timer para auto-hide apenas para mensagens de sucesso
+        Timer {
+            interval: show-duration;
+            running: !is-error; // só roda para mensagens de sucesso
+            triggered => {
+                auto-hide();
+            }
+        }
+    }
+}

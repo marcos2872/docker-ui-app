@@ -17,7 +17,7 @@ mod list_volumes;
 
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
-use docker::{ContainerInfo, DockerInfo, DockerManager};
+use docker::{ContainerInfo, DockerInfo, DockerManager, CreateContainerRequest, PortMapping, VolumeMapping, EnvVar};
 use list_containers::{ContainerUIManager, SlintContainerData, setup_container_ui_timer};
 use list_images::{ImageUIManager, SlintImageData};
 use list_networks::{NetworkUIManager, SlintNetworkData};
@@ -269,6 +269,9 @@ async fn setup_docker_ui(
                 container_cpu_renderer,
                 container_memory_renderer,
             );
+
+            // Configura callbacks de criação de containers
+            setup_create_container_callbacks(ui_weak.clone(), docker_manager_shared.clone());
 
             // Configura gerenciador de imagens UI
             let image_ui_manager = Arc::new(tokio::sync::Mutex::new(ImageUIManager::new(
@@ -1238,6 +1241,163 @@ fn setup_callbacks(ui_weak: Weak<AppWindow>, _app_state: AppState) {
     });
 }
 
+// Configura callbacks para criação de containers
+fn setup_create_container_callbacks(
+    ui_weak: Weak<AppWindow>,
+    docker_manager: Arc<tokio::sync::Mutex<DockerManager>>,
+) {
+    let ui = ui_weak.upgrade().unwrap();
+
+    // Callback para criar container
+    ui.on_create_container({
+        let ui_weak = ui_weak.clone();
+        let docker_manager = docker_manager.clone();
+        move |name, image, command, restart_policy, ports_text, volumes_text, env_vars_text| {
+            
+            let ui_weak_clone = ui_weak.clone();
+            let docker_manager_clone = docker_manager.clone();
+            let name_str = name.to_string();
+            let image_str = image.to_string();
+            let command_str = command.to_string();
+            let restart_policy_str = restart_policy.to_string();
+            let ports_str = ports_text.to_string();
+            let volumes_str = volumes_text.to_string();
+            let env_vars_str = env_vars_text.to_string();
+
+            tokio::spawn(async move {
+                // Define estado de loading
+                let ui_weak_loading = ui_weak_clone.clone();
+                slint::invoke_from_event_loop(move || {
+                    if let Some(ui) = ui_weak_loading.upgrade() {
+                        ui.set_creating_container(true);
+                    }
+                })
+                .unwrap();
+
+                // Valida campos obrigatórios
+                if name_str.trim().is_empty() {
+                    println!("🔍 DEBUG: Validação falhou - nome vazio");
+                    let ui_weak_error = ui_weak_clone.clone();
+                    slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_weak_error.upgrade() {
+                            println!("🔍 DEBUG: Definindo notificação de erro");
+                            ui.set_creating_container(false);
+                            ui.set_notification_message("Nome do container é obrigatório".into());
+                            ui.set_notification_is_error(true);
+                            ui.set_show_notification(true);
+                        }
+                    })
+                    .unwrap();
+                    return;
+                }
+                
+                if image_str.trim().is_empty() {
+                    let ui_weak_error = ui_weak_clone.clone();
+                    slint::invoke_from_event_loop(move || {
+                        if let Some(ui) = ui_weak_error.upgrade() {
+                            ui.set_creating_container(false);
+                            ui.set_notification_message("Nome da imagem é obrigatório".into());
+                            ui.set_notification_is_error(true);
+                            ui.set_show_notification(true);
+                        }
+                    })
+                    .unwrap();
+                    return;
+                }
+
+                // Parse dos campos de entrada
+                let ports = parse_ports_text(&ports_str);
+                let volumes = parse_volumes_text(&volumes_str);
+                let env_vars = parse_env_vars_text(&env_vars_str);
+
+                let create_request = CreateContainerRequest {
+                    name: name_str.trim().to_string(),
+                    image: image_str.trim().to_string(),
+                    ports,
+                    volumes,
+                    environment: env_vars,
+                    command: if command_str.trim().is_empty() { None } else { Some(command_str.trim().to_string()) },
+                    restart_policy: restart_policy_str,
+                };
+
+                // Executa criação
+                let docker_manager = docker_manager_clone.lock().await;
+                let result = docker_manager.create_container(create_request).await;
+
+                match result {
+                    Ok(container_id) => {
+                        let ui_weak_success = ui_weak_clone.clone();
+                        let container_name = name_str.clone();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_success.upgrade() {
+                                ui.set_creating_container(false);
+                                ui.set_notification_message(format!("Container '{}' criado e iniciado com sucesso!\nID: {}", container_name, &container_id[..12]).into());
+                                ui.set_notification_is_error(false);
+                                ui.set_show_notification(true);
+                                
+                                // Agenda fechamento do modal e notificação juntos após 3 segundos
+                                let ui_weak_timer = ui_weak_clone.clone();
+                                tokio::spawn(async move {
+                                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                                    slint::invoke_from_event_loop(move || {
+                                        if let Some(ui) = ui_weak_timer.upgrade() {
+                                            // Fecha modal e notificação juntos
+                                            ui.set_show_create_modal(false);
+                                            ui.set_show_notification(false);
+                                            
+                                            // Limpa os campos
+                                            ui.set_create_container_name("".into());
+                                            ui.set_create_image_name("".into());
+                                            ui.set_create_command("".into());
+                                            ui.set_create_restart_policy("no".into());
+                                            ui.set_create_ports_text("".into());
+                                            ui.set_create_volumes_text("".into());
+                                            ui.set_create_env_vars_text("".into());
+                                        }
+                                    })
+                                    .unwrap();
+                                });
+                            }
+                        })
+                        .unwrap();
+                    }
+                    Err(e) => {
+                        let error_message = e.to_string();
+                        let ui_weak_error = ui_weak_clone.clone();
+                        slint::invoke_from_event_loop(move || {
+                            if let Some(ui) = ui_weak_error.upgrade() {
+                                ui.set_creating_container(false);
+                                ui.set_notification_message(format!("Falha ao criar container:\n{}", error_message).into());
+                                ui.set_notification_is_error(true);
+                                ui.set_show_notification(true);
+                            }
+                        })
+                        .unwrap();
+                    }
+                }
+            });
+        }
+    });
+
+    // Callback para cancelar criação
+    ui.on_cancel_create_container({
+        let ui_weak = ui_weak.clone();
+        move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_show_create_modal(false);
+                ui.set_create_container_name("".into());
+                ui.set_create_image_name("".into());
+                ui.set_create_command("".into());
+                ui.set_create_restart_policy("no".into());
+                ui.set_create_ports_text("".into());
+                ui.set_create_volumes_text("".into());
+                ui.set_create_env_vars_text("".into());
+                ui.set_creating_container(false);
+            }
+        }
+    });
+}
+
 // Formata bytes em unidades legíveis
 fn format_bytes(bytes: u64) -> String {
     const KB: u64 = 1024;
@@ -1340,6 +1500,107 @@ fn setup_container_logs_timer(
 
     // Mantém o timer vivo
     std::mem::forget(timer);
+}
+
+// Funções auxiliares para parsing de entrada
+
+// Parse do texto de portas: "8080:80/tcp,9000:9000/udp"
+fn parse_ports_text(ports_text: &str) -> Vec<PortMapping> {
+    if ports_text.trim().is_empty() {
+        return Vec::new();
+    }
+
+    ports_text
+        .split(',')
+        .filter_map(|port_str| {
+            let port_str = port_str.trim();
+            if port_str.is_empty() {
+                return None;
+            }
+
+            // Separa protocolo se especificado
+            let (port_part, protocol) = if port_str.contains('/') {
+                let parts: Vec<&str> = port_str.split('/').collect();
+                (parts[0], parts.get(1).unwrap_or(&"tcp").to_string())
+            } else {
+                (port_str, "tcp".to_string())
+            };
+
+            // Parse host:container
+            let parts: Vec<&str> = port_part.split(':').collect();
+            if parts.len() != 2 {
+                return None;
+            }
+
+            let host_port = parts[0].parse::<u16>().ok()?;
+            let container_port = parts[1].parse::<u16>().ok()?;
+
+            Some(PortMapping {
+                host_port,
+                container_port,
+                protocol,
+            })
+        })
+        .collect()
+}
+
+// Parse do texto de volumes: "/host/path:/container/path,/host2:/container2:ro"
+fn parse_volumes_text(volumes_text: &str) -> Vec<VolumeMapping> {
+    if volumes_text.trim().is_empty() {
+        return Vec::new();
+    }
+
+    volumes_text
+        .split(',')
+        .filter_map(|volume_str| {
+            let volume_str = volume_str.trim();
+            if volume_str.is_empty() {
+                return None;
+            }
+
+            let parts: Vec<&str> = volume_str.split(':').collect();
+            if parts.len() < 2 {
+                return None;
+            }
+
+            let host_path = parts[0].to_string();
+            let container_path = parts[1].to_string();
+            let read_only = parts.get(2).map_or(false, |&mode| mode == "ro");
+
+            Some(VolumeMapping {
+                host_path,
+                container_path,
+                read_only,
+            })
+        })
+        .collect()
+}
+
+// Parse do texto de variáveis de ambiente: "KEY1=value1,KEY2=value2"
+fn parse_env_vars_text(env_vars_text: &str) -> Vec<EnvVar> {
+    if env_vars_text.trim().is_empty() {
+        return Vec::new();
+    }
+
+    env_vars_text
+        .split(',')
+        .filter_map(|env_str| {
+            let env_str = env_str.trim();
+            if env_str.is_empty() {
+                return None;
+            }
+
+            let parts: Vec<&str> = env_str.splitn(2, '=').collect();
+            if parts.len() != 2 {
+                return None;
+            }
+
+            Some(EnvVar {
+                key: parts[0].to_string(),
+                value: parts[1].to_string(),
+            })
+        })
+        .collect()
 }
 
 // Configura callback para carregar mais logs

@@ -7,6 +7,8 @@ use bollard::{
         ListContainersOptions, ListImagesOptions, ListNetworksOptions, ListVolumesOptions,
         StatsOptions,
     },
+    query_parameters::CreateContainerOptions,
+    models::ContainerCreateBody,
 };
 use chrono;
 use futures_util::TryStreamExt;
@@ -144,6 +146,41 @@ pub struct ContainerStats {
     pub network_tx: u64,
     pub block_read: u64,
     pub block_write: u64,
+}
+
+// Estrutura para criar um novo container
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CreateContainerRequest {
+    pub name: String,
+    pub image: String,
+    pub ports: Vec<PortMapping>,
+    pub volumes: Vec<VolumeMapping>,
+    pub environment: Vec<EnvVar>,
+    pub command: Option<String>,
+    pub restart_policy: String,
+}
+
+// Mapeamento de portas
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PortMapping {
+    pub host_port: u16,
+    pub container_port: u16,
+    pub protocol: String, // tcp ou udp
+}
+
+// Mapeamento de volumes
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VolumeMapping {
+    pub host_path: String,
+    pub container_path: String,
+    pub read_only: bool,
+}
+
+// Variável de ambiente
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EnvVar {
+    pub key: String,
+    pub value: String,
 }
 
 impl DockerManager {
@@ -1258,5 +1295,154 @@ impl DockerManager {
         } else {
             format!("{:.1} MB/s", bytes as f64 / 1024.0 / 1024.0)
         }
+    }
+
+    // Cria um novo container
+    pub async fn create_container(&self, request: CreateContainerRequest) -> Result<String> {
+        use bollard::models::{PortBinding, HostConfig, Mount, MountTypeEnum, RestartPolicy, RestartPolicyNameEnum};
+        use std::collections::HashMap;
+        
+        // Verifica se o nome já existe
+        if self.container_name_exists(&request.name).await? {
+            return Err(anyhow::anyhow!("Container com nome '{}' já existe", request.name));
+        }
+
+        // Verifica se a imagem existe localmente, se não, tenta fazer pull
+        if !self.image_exists(&request.image).await? {
+            // Aqui podemos adicionar callback de progresso no futuro
+            self.pull_image(&request.image).await?;
+        }
+
+        // Configura mapeamento de portas
+        let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
+        let mut exposed_ports: HashMap<String, HashMap<(), ()>> = HashMap::new();
+        
+        for port_map in &request.ports {
+            let container_port_key = format!("{}/{}", port_map.container_port, port_map.protocol);
+            port_bindings.insert(
+                container_port_key.clone(),
+                Some(vec![PortBinding {
+                    host_ip: Some("0.0.0.0".to_string()),
+                    host_port: Some(port_map.host_port.to_string()),
+                }])
+            );
+            exposed_ports.insert(container_port_key, HashMap::new());
+        }
+
+        // Configura volumes/mounts
+        let mut mounts = Vec::new();
+        for volume_map in &request.volumes {
+            mounts.push(Mount {
+                target: Some(volume_map.container_path.clone()),
+                source: Some(volume_map.host_path.clone()),
+                typ: Some(MountTypeEnum::BIND),
+                read_only: Some(volume_map.read_only),
+                ..Default::default()
+            });
+        }
+
+        // Configura variáveis de ambiente
+        let env: Vec<String> = request.environment
+            .iter()
+            .map(|var| format!("{}={}", var.key, var.value))
+            .collect();
+
+        // Configura política de restart
+        let restart_policy = match request.restart_policy.as_str() {
+            "always" => Some(RestartPolicy {
+                name: Some(RestartPolicyNameEnum::ALWAYS),
+                maximum_retry_count: None,
+            }),
+            "unless-stopped" => Some(RestartPolicy {
+                name: Some(RestartPolicyNameEnum::UNLESS_STOPPED),
+                maximum_retry_count: None,
+            }),
+            "on-failure" => Some(RestartPolicy {
+                name: Some(RestartPolicyNameEnum::ON_FAILURE),
+                maximum_retry_count: Some(3),
+            }),
+            _ => Some(RestartPolicy {
+                name: Some(RestartPolicyNameEnum::EMPTY),
+                maximum_retry_count: None,
+            }),
+        };
+
+        // Configura comando se especificado
+        let cmd = request.command.as_ref().map(|c| {
+            c.split_whitespace().map(|s| s.to_string()).collect::<Vec<String>>()
+        });
+
+        // Cria configuração do container
+        let config = ContainerCreateBody {
+            image: Some(request.image.clone()),
+            env: Some(env),
+            cmd,
+            exposed_ports: Some(exposed_ports),
+            host_config: Some(HostConfig {
+                port_bindings: Some(port_bindings),
+                mounts: Some(mounts),
+                restart_policy,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let options = CreateContainerOptions {
+            name: Some(request.name.clone()),
+            ..Default::default()
+        };
+
+        // Cria o container
+        let response = self.docker
+            .create_container(Some(options), config)
+            .await
+            .context("Falha ao criar container")?;
+
+        // Inicia o container automaticamente
+        self.start_container(&response.id)
+            .await
+            .context("Container criado mas falha ao iniciar")?;
+
+        Ok(response.id)
+    }
+
+    // Verifica se um container com o nome existe
+    async fn container_name_exists(&self, name: &str) -> Result<bool> {
+        let containers = self.list_containers().await?;
+        Ok(containers.iter().any(|c| c.name == name))
+    }
+
+    // Verifica se uma imagem existe localmente
+    async fn image_exists(&self, image_name: &str) -> Result<bool> {
+        let images = self.list_images().await?;
+        Ok(images.iter().any(|img| {
+            img.tags.iter().any(|tag| tag == image_name || tag.starts_with(&format!("{}:", image_name)))
+        }))
+    }
+
+    // Faz pull de uma imagem
+    async fn pull_image(&self, image_name: &str) -> Result<()> {
+        use futures_util::StreamExt;
+        use bollard::query_parameters::CreateImageOptions;
+
+        let options = CreateImageOptions {
+            from_image: Some(image_name.to_string()),
+            ..Default::default()
+        };
+
+        let mut stream = self.docker.create_image(Some(options), None, None);
+
+        while let Some(result) = stream.next().await {
+            match result {
+                Ok(_) => {
+                    // Pull em progresso
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Falha ao fazer pull da imagem '{}': {}", image_name, e));
+                }
+            }
+        }
+
+        Ok(())
     }
 }

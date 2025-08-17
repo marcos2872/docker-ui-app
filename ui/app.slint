@@ -4,6 +4,8 @@ import { ContainerDetails } from "container-details.slint";
 import { ImagesList } from "images.slint";
 import { NetworksList } from "network.slint";
 import { VolumesList } from "volumes.slint";
+import { CreateContainerModal } from "create-container.slint";
+import { NotificationTooltip } from "notification.slint";
 
 // Interface principal da aplicação Docker UI
 
@@ -144,6 +146,22 @@ export component AppWindow inherits Window {
     callback refresh-volumes-clicked();
     callback volume-action(string, string);
 
+    // Propriedades do modal de criação de container
+    in-out property <bool> show-create-modal: false;
+    in-out property <string> create-container-name: "";
+    in-out property <string> create-image-name: "";
+    in-out property <string> create-command: "";
+    in-out property <string> create-restart-policy: "no";
+    in-out property <string> create-ports-text: "";
+    in-out property <string> create-volumes-text: "";
+    in-out property <string> create-env-vars-text: "";
+    in-out property <bool> creating-container: false;
+
+    // Propriedades da notificação
+    in-out property <string> notification-message: "";
+    in-out property <bool> notification-is-error: false;
+    in-out property <bool> show-notification: false;
+
     // Callbacks para interação
     callback screen-changed(int);
     callback search-changed(string);
@@ -151,6 +169,8 @@ export component AppWindow inherits Window {
     callback container-action(string, string);
     callback view-container-details(ContainerData);
     callback load-more-logs();
+    callback create-container(string, string, string, string, string, string, string);
+    callback cancel-create-container();
 
     title: "Docker UI";
     min-width: 1020px;
@@ -301,6 +321,9 @@ export component AppWindow inherits Window {
                     root.current-screen = 5;
                     root.logs-lines-loaded = 50; // Reset para 50 linhas quando muda de container
                 }
+                create-container-clicked => {
+                    root.show-create-modal = true;
+                }
             }
             if root.current-screen == 2: ImagesList {
                 images: root.images;
@@ -376,6 +399,47 @@ export component AppWindow inherits Window {
                     root.logs-expanded = !root.logs-expanded;
                 }
             }
+        }
+
+        // Modal de criação de container - só renderiza quando necessário
+        if show-create-modal: CreateContainerModal {
+            show-modal: true;
+            container-name <=> create-container-name;
+            image-name <=> create-image-name;
+            command <=> create-command;
+            restart-policy <=> create-restart-policy;
+            ports-text <=> create-ports-text;
+            volumes-text <=> create-volumes-text;
+            env-vars-text <=> create-env-vars-text;
+            creating <=> creating-container;
+
+            create-clicked => {
+                root.create-container(
+                    create-container-name,
+                    create-image-name,
+                    create-command,
+                    create-restart-policy,
+                    create-ports-text,
+                    create-volumes-text,
+                    create-env-vars-text
+                );
+            }
+
+            cancel-clicked => {
+                root.cancel-create-container();
+            }
+        }
+
+    }
+
+    // Sistema de notificações - sempre por último para ter z-index mais alto
+    if show-notification: NotificationTooltip {
+        message: notification-message;
+        is-error: notification-is-error;
+        show-notification: true;
+        
+        auto-hide => {
+            root.show-notification = false;
         }
     }
 }

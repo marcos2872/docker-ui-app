@@ -1,0 +1,460 @@
+// Modal para criação de novos containers
+
+// Componente de campo de entrada
+component InputField inherits VerticalLayout {
+    in property <string> label;
+    in property <string> placeholder;
+    in-out property <string> text;
+    in property <bool> required: false;
+
+    spacing: 4px;
+
+    HorizontalLayout {
+        Text {
+            text: label + (required ? " *" : "");
+            color: #ffffff;
+            font-size: 14px;
+            font-weight: 600;
+        }
+    }
+
+    Rectangle {
+        background: #2e3030;
+        border-radius: 6px;
+        height: 40px;
+        border-width: 1px;
+        border-color: #4a5568;
+
+        TextInput {
+            text: root.text;
+            color: #ffffff;
+            font-size: 14px;
+            vertical-alignment: center;
+            horizontal-alignment: left;
+            x: 12px;
+            width: parent.width - 24px;
+            height: parent.height;
+
+            edited => {
+                root.text = self.text;
+            }
+        }
+    }
+}
+
+
+export component CreateContainerModal inherits Rectangle {
+    in-out property <bool> show-modal: false;
+    in-out property <string> container-name;
+    in-out property <string> image-name;
+    in-out property <string> command;
+    in-out property <string> restart-policy: "no";
+    in-out property <string> ports-text: "";
+    in-out property <string> volumes-text: "";
+    in-out property <string> env-vars-text: "";
+    in-out property <bool> creating: false;
+
+    callback create-clicked();
+    callback cancel-clicked();
+
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+
+    Rectangle {
+        background: #262929;
+        border-radius: 12px;
+        width: 600px;
+        height: 700px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-width: 1px;
+        border-color: #4a5568;
+
+        VerticalLayout {
+            padding: 24px;
+            spacing: 20px;
+
+            // Cabeçalho
+            HorizontalLayout {
+                alignment: space-between;
+
+                Text {
+                    text: "Criar Novo Container";
+                    font-size: 20px;
+                    font-weight: 600;
+                    color: #ffffff;
+                }
+
+                Rectangle {
+                    width: 32px;
+                    height: 32px;
+                    background: #ef4444;
+                    border-radius: 6px;
+                    
+                    TouchArea {
+                        clicked => {
+                            cancel-clicked();
+                        }
+                    }
+
+                    Text {
+                        text: "×";
+                        color: #ffffff;
+                        font-size: 20px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            // Conteúdo principal em scroll
+            Flickable {
+                height: 500px;
+
+                VerticalLayout {
+                    spacing: 16px;
+
+                    // Campo Nome (simplificado para debug)
+                    VerticalLayout {
+                        spacing: 4px;
+                        
+                        Text {
+                            text: "Nome do Container *";
+                            color: #ffffff;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+                        
+                        Rectangle {
+                            background: #2e3030;
+                            border-radius: 6px;
+                            height: 40px;
+                            border-width: 1px;
+                            border-color: #4a5568;
+
+                            TextInput {
+                                text: container-name;
+                                color: #ffffff;
+                                font-size: 14px;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                x: 12px;
+                                width: parent.width - 24px;
+                                height: parent.height;
+
+                                edited => {
+                                    container-name = self.text;
+                                }
+                            }
+                        }
+                    }
+
+                    // Campo Imagem (simplificado para debug)
+                    VerticalLayout {
+                        spacing: 4px;
+                        
+                        Text {
+                            text: "Imagem *";
+                            color: #ffffff;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+                        
+                        Rectangle {
+                            background: #2e3030;
+                            border-radius: 6px;
+                            height: 40px;
+                            border-width: 1px;
+                            border-color: #4a5568;
+
+                            TextInput {
+                                text: image-name;
+                                color: #ffffff;
+                                font-size: 14px;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                x: 12px;
+                                width: parent.width - 24px;
+                                height: parent.height;
+
+                                edited => {
+                                    image-name = self.text;
+                                }
+                            }
+                        }
+                    }
+
+                    InputField {
+                        label: "Comando (opcional)";
+                        placeholder: "/bin/bash";
+                        text: command;
+                    }
+
+                    // Política de restart
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Política de Restart";
+                            color: #ffffff;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 8px;
+
+                            Rectangle {
+                                width: 60px;
+                                height: 32px;
+                                background: restart-policy == "no" ? #0ea5e9 : #2e3030;
+                                border-radius: 6px;
+                                border-width: 1px;
+                                border-color: restart-policy == "no" ? #0ea5e9 : #4a5568;
+                                
+                                TouchArea {
+                                    clicked => {
+                                        restart-policy = "no";
+                                    }
+                                }
+
+                                Text {
+                                    text: "No";
+                                    color: #ffffff;
+                                    font-size: 12px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Rectangle {
+                                width: 80px;
+                                height: 32px;
+                                background: restart-policy == "always" ? #0ea5e9 : #2e3030;
+                                border-radius: 6px;
+                                border-width: 1px;
+                                border-color: restart-policy == "always" ? #0ea5e9 : #4a5568;
+                                
+                                TouchArea {
+                                    clicked => {
+                                        restart-policy = "always";
+                                    }
+                                }
+
+                                Text {
+                                    text: "Always";
+                                    color: #ffffff;
+                                    font-size: 12px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Rectangle {
+                                width: 100px;
+                                height: 32px;
+                                background: restart-policy == "on-failure" ? #0ea5e9 : #2e3030;
+                                border-radius: 6px;
+                                border-width: 1px;
+                                border-color: restart-policy == "on-failure" ? #0ea5e9 : #4a5568;
+                                
+                                TouchArea {
+                                    clicked => {
+                                        restart-policy = "on-failure";
+                                    }
+                                }
+
+                                Text {
+                                    text: "On-failure";
+                                    color: #ffffff;
+                                    font-size: 12px;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    // Portas (formato simplificado: host:container/protocol,...)
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Portas (host:container/protocol)";
+                            color: #ffffff;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+
+                        Text {
+                            text: "Exemplo: 8080:80/tcp,9000:9000/udp";
+                            color: #9ca3af;
+                            font-size: 12px;
+                        }
+
+                        Rectangle {
+                            background: #2e3030;
+                            border-radius: 6px;
+                            height: 40px;
+                            border-width: 1px;
+                            border-color: #4a5568;
+
+                            TextInput {
+                                text: ports-text;
+                                color: #ffffff;
+                                font-size: 14px;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                x: 12px;
+                                width: parent.width - 24px;
+                                height: parent.height;
+
+                                edited => {
+                                    ports-text = self.text;
+                                }
+                            }
+                        }
+                    }
+
+                    // Volumes (formato simplificado: host:container,...)
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Volumes (host:container)";
+                            color: #ffffff;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+
+                        Text {
+                            text: "Exemplo: /home/user/data:/app/data,/tmp:/app/tmp:ro";
+                            color: #9ca3af;
+                            font-size: 12px;
+                        }
+
+                        Rectangle {
+                            background: #2e3030;
+                            border-radius: 6px;
+                            height: 40px;
+                            border-width: 1px;
+                            border-color: #4a5568;
+
+                            TextInput {
+                                text: volumes-text;
+                                color: #ffffff;
+                                font-size: 14px;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                x: 12px;
+                                width: parent.width - 24px;
+                                height: parent.height;
+
+                                edited => {
+                                    volumes-text = self.text;
+                                }
+                            }
+                        }
+                    }
+
+                    // Variáveis de ambiente (formato simplificado: KEY=value,...)
+                    VerticalLayout {
+                        spacing: 4px;
+
+                        Text {
+                            text: "Variáveis de Ambiente (KEY=value)";
+                            color: #ffffff;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+
+                        Text {
+                            text: "Exemplo: NODE_ENV=production,PORT=3000";
+                            color: #9ca3af;
+                            font-size: 12px;
+                        }
+
+                        Rectangle {
+                            background: #2e3030;
+                            border-radius: 6px;
+                            height: 40px;
+                            border-width: 1px;
+                            border-color: #4a5568;
+
+                            TextInput {
+                                text: env-vars-text;
+                                color: #ffffff;
+                                font-size: 14px;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                                x: 12px;
+                                width: parent.width - 24px;
+                                height: parent.height;
+
+                                edited => {
+                                    env-vars-text = self.text;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+
+            // Botões de ação
+            HorizontalLayout {
+                alignment: end;
+                spacing: 12px;
+
+                Rectangle {
+                    width: 80px;
+                    height: 36px;
+                    background: #6b7280;
+                    border-radius: 6px;
+                    
+                    TouchArea {
+                        clicked => {
+                            cancel-clicked();
+                        }
+                    }
+
+                    Text {
+                        text: "Cancelar";
+                        color: #ffffff;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle {
+                    width: 100px;
+                    height: 36px;
+                    background: creating ? #6b7280 : #0ea5e9;
+                    border-radius: 6px;
+                    border-width: 2px;
+                    border-color: #0ea5e9;
+                    
+                    TouchArea {
+                        clicked => {
+                            if !creating {
+                                create-clicked();
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: creating ? "Criando..." : "Criar";
+                        color: #ffffff;
+                        font-size: 14px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}
