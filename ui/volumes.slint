@@ -72,6 +72,7 @@ component StatusIndicator inherits Rectangle {
 
 component VolumeItem inherits Rectangle {
     in property <VolumeData> volume;
+    in property <string> loading-action;
     callback volume-action(string);
 
     background: #2e3030;
@@ -148,11 +149,13 @@ component VolumeItem inherits Rectangle {
                 spacing: 12px;
 
                 Button {
-                    text: "Deletar";
-                    bg: #1A1B1B;
-                    enabled: volume.containers_count == 0; // Só habilita se não tiver containers conectados
+                    text: loading-action == volume.name + "_remove" ? "..." : "Deletar";
+                    bg: loading-action == volume.name + "_remove" ? #6b7280 : #1A1B1B;
+                    enabled: volume.containers_count == 0 && loading-action == ""; // Só habilita se não tiver containers conectados
                         clicked => {
-                        volume-action("remove");
+                        if (loading-action == "") {
+                            volume-action("remove");
+                        }
                     }
                 }
             }
@@ -166,6 +169,7 @@ export component VolumesList inherits VerticalLayout {
     in property <string> volume_success_message: "";
     in property <string> volume_error_in_use_message: "";
     in property <string> volume_error_other_message: "";
+    in property <string> volume-loading;
 
     callback refresh-clicked();
     callback volume-action(string, string);
@@ -237,6 +241,7 @@ export component VolumesList inherits VerticalLayout {
 
             for volume in volumes: VolumeItem {
                 volume: volume;
+                loading-action: volume-loading;
                 volume-action(action) => {
                     volume-action(volume.name, action);
                 }

@@ -125,6 +125,7 @@ export component AppWindow inherits Window {
     in-out property <string> success-message;
     in-out property <string> error-in-use-message;
     in-out property <string> error-other-message;
+    in-out property <string> image-loading: "";
     callback refresh-images-clicked();
     callback image-action(string, string);
 
@@ -134,6 +135,7 @@ export component AppWindow inherits Window {
     in-out property <string> network-success-message;
     in-out property <string> network-error-in-use-message;
     in-out property <string> network-error-other-message;
+    in-out property <string> network-loading: "";
     callback refresh-networks-clicked();
     callback network-action(string, string);
 
@@ -143,6 +145,7 @@ export component AppWindow inherits Window {
     in-out property <string> volume-success-message;
     in-out property <string> volume-error-in-use-message;
     in-out property <string> volume-error-other-message;
+    in-out property <string> volume-loading: "";
     callback refresh-volumes-clicked();
     callback volume-action(string, string);
 
@@ -332,6 +335,7 @@ export component AppWindow inherits Window {
                 success_message: root.success-message;
                 error_in_use_message: root.error-in-use-message;
                 error_other_message: root.error-other-message;
+                image-loading: root.image-loading;
                 refresh-clicked => {
                     root.refresh-images-clicked();
                 }
@@ -345,6 +349,7 @@ export component AppWindow inherits Window {
                 network_success_message: root.network-success-message;
                 network_error_in_use_message: root.network-error-in-use-message;
                 network_error_other_message: root.network-error-other-message;
+                network-loading: root.network-loading;
                 refresh-clicked => {
                     root.refresh-networks-clicked();
                 }
@@ -358,6 +363,7 @@ export component AppWindow inherits Window {
                 volume_success_message: root.volume-success-message;
                 volume_error_in_use_message: root.volume-error-in-use-message;
                 volume_error_other_message: root.volume-error-other-message;
+                volume-loading: root.volume-loading;
                 refresh-clicked => {
                     root.refresh-volumes-clicked();
                 }
