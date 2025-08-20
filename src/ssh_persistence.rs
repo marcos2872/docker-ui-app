@@ -1,8 +1,8 @@
+use crate::ssh::SshConnection;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use anyhow::{Context, Result};
-use crate::ssh::SshConnection;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedSshServer {
@@ -79,8 +79,7 @@ impl SshPersistence {
             .join("docker-ui");
 
         if !config_dir.exists() {
-            fs::create_dir_all(&config_dir)
-                .context("Failed to create config directory")?;
+            fs::create_dir_all(&config_dir).context("Failed to create config directory")?;
         }
 
         Ok(Self {
@@ -93,11 +92,11 @@ impl SshPersistence {
             return Ok(SshServerConfig::default());
         }
 
-        let content = fs::read_to_string(&self.config_path)
-            .context("Failed to read SSH config file")?;
+        let content =
+            fs::read_to_string(&self.config_path).context("Failed to read SSH config file")?;
 
-        let config: SshServerConfig = serde_json::from_str(&content)
-            .context("Failed to parse SSH config file")?;
+        let config: SshServerConfig =
+            serde_json::from_str(&content).context("Failed to parse SSH config file")?;
 
         Ok(config)
     }
@@ -106,28 +105,27 @@ impl SshPersistence {
         let mut config = config.clone();
         config.last_updated = chrono::Utc::now();
 
-        let content = serde_json::to_string_pretty(&config)
-            .context("Failed to serialize SSH config")?;
+        let content =
+            serde_json::to_string_pretty(&config).context("Failed to serialize SSH config")?;
 
-        fs::write(&self.config_path, content)
-            .context("Failed to write SSH config file")?;
+        fs::write(&self.config_path, content).context("Failed to write SSH config file")?;
 
         Ok(())
     }
 
     pub fn add_server(&self, server: SavedSshServer) -> Result<()> {
         let mut config = self.load_config()?;
-        
+
         // Remove se já existe um servidor com o mesmo ID
         config.servers.retain(|s| s.id != server.id);
-        
+
         config.servers.push(server);
         self.save_config(&config)
     }
 
     pub fn update_server(&self, server: SavedSshServer) -> Result<()> {
         let mut config = self.load_config()?;
-        
+
         if let Some(existing) = config.servers.iter_mut().find(|s| s.id == server.id) {
             *existing = server;
             self.save_config(&config)?;
@@ -140,10 +138,10 @@ impl SshPersistence {
 
     pub fn remove_server(&self, server_id: &str) -> Result<()> {
         let mut config = self.load_config()?;
-        
+
         let initial_count = config.servers.len();
         config.servers.retain(|s| s.id != server_id);
-        
+
         if config.servers.len() == initial_count {
             return Err(anyhow::anyhow!("Server not found"));
         }
@@ -163,12 +161,16 @@ impl SshPersistence {
 
     pub fn get_favorites(&self) -> Result<Vec<SavedSshServer>> {
         let config = self.load_config()?;
-        Ok(config.servers.into_iter().filter(|s| s.is_favorite).collect())
+        Ok(config
+            .servers
+            .into_iter()
+            .filter(|s| s.is_favorite)
+            .collect())
     }
 
     pub fn mark_as_connected(&self, server_id: &str) -> Result<()> {
         let mut config = self.load_config()?;
-        
+
         if let Some(server) = config.servers.iter_mut().find(|s| s.id == server_id) {
             server.update_last_connected();
             self.save_config(&config)?;
@@ -179,7 +181,7 @@ impl SshPersistence {
 
     pub fn toggle_favorite(&self, server_id: &str) -> Result<bool> {
         let mut config = self.load_config()?;
-        
+
         if let Some(server) = config.servers.iter_mut().find(|s| s.id == server_id) {
             server.is_favorite = !server.is_favorite;
             let is_favorite = server.is_favorite;
@@ -193,13 +195,17 @@ impl SshPersistence {
     pub fn search_servers(&self, query: &str) -> Result<Vec<SavedSshServer>> {
         let config = self.load_config()?;
         let query = query.to_lowercase();
-        
-        Ok(config.servers.into_iter()
+
+        Ok(config
+            .servers
+            .into_iter()
             .filter(|s| {
-                s.name.to_lowercase().contains(&query) ||
-                s.host.to_lowercase().contains(&query) ||
-                s.username.to_lowercase().contains(&query) ||
-                s.description.as_ref().map_or(false, |d| d.to_lowercase().contains(&query))
+                s.name.to_lowercase().contains(&query)
+                    || s.host.to_lowercase().contains(&query)
+                    || s.username.to_lowercase().contains(&query)
+                    || s.description
+                        .as_ref()
+                        .map_or(false, |d| d.to_lowercase().contains(&query))
             })
             .collect())
     }
@@ -207,15 +213,13 @@ impl SshPersistence {
     pub fn get_recent_servers(&self, limit: usize) -> Result<Vec<SavedSshServer>> {
         let config = self.load_config()?;
         let mut servers = config.servers;
-        
+
         // Ordena por última conexão, mais recente primeiro
-        servers.sort_by(|a, b| {
-            match (a.last_connected, b.last_connected) {
-                (Some(a_time), Some(b_time)) => b_time.cmp(&a_time),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => a.name.cmp(&b.name),
-            }
+        servers.sort_by(|a, b| match (a.last_connected, b.last_connected) {
+            (Some(a_time), Some(b_time)) => b_time.cmp(&a_time),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => a.name.cmp(&b.name),
         });
 
         servers.truncate(limit);
@@ -232,7 +236,7 @@ impl SshPersistence {
     pub fn import_config(&self, import_path: &Path, merge: bool) -> Result<usize> {
         let content = fs::read_to_string(import_path)?;
         let imported_config: SshServerConfig = serde_json::from_str(&content)?;
-        
+
         let mut config = if merge {
             self.load_config()?
         } else {
@@ -240,9 +244,13 @@ impl SshPersistence {
         };
 
         let mut added_count = 0;
-        
+
         for server in imported_config.servers {
-            if !config.servers.iter().any(|s| s.host == server.host && s.username == server.username) {
+            if !config
+                .servers
+                .iter()
+                .any(|s| s.host == server.host && s.username == server.username)
+            {
                 config.servers.push(server);
                 added_count += 1;
             }

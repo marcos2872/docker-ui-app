@@ -6,7 +6,10 @@ use crate::ssh::{SshClient, SshConnection};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json;
-use std::{collections::HashMap, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 #[async_trait]
 pub trait DockerManager {
@@ -39,7 +42,7 @@ pub trait DockerManager {
     async fn create_container(&self, request: CreateContainerRequest) -> Result<String>;
 }
 
-// Cache para estatísticas anteriores (necessário para cálculo de delta) 
+// Cache para estatísticas anteriores (necessário para cálculo de delta)
 #[derive(Debug, Clone)]
 struct PreviousStats {
     timestamp: u64,
@@ -212,46 +215,62 @@ impl RemoteDockerManager {
     }
 
     pub async fn pause_container(&self, container_name: &str) -> Result<()> {
-        self.execute_docker_command(&format!("pause {}", container_name)).await?;
+        self.execute_docker_command(&format!("pause {}", container_name))
+            .await?;
         Ok(())
     }
 
     pub async fn unpause_container(&self, container_name: &str) -> Result<()> {
-        self.execute_docker_command(&format!("unpause {}", container_name)).await?;
+        self.execute_docker_command(&format!("unpause {}", container_name))
+            .await?;
         Ok(())
     }
 
     pub async fn remove_network(&self, network_id: &str) -> Result<()> {
-        let output = self.execute_docker_command(&format!("network rm {}", network_id)).await;
-        
+        let output = self
+            .execute_docker_command(&format!("network rm {}", network_id))
+            .await;
+
         match output {
             Ok(_) => Ok(()),
             Err(e) => {
                 let error_msg = e.to_string().to_lowercase();
                 if error_msg.contains("has active endpoints") || error_msg.contains("endpoint") {
-                    Err(anyhow::anyhow!("IN_USE:A network possui containers conectados."))
+                    Err(anyhow::anyhow!(
+                        "IN_USE:A network possui containers conectados."
+                    ))
                 } else if error_msg.contains("not found") || error_msg.contains("no such network") {
                     Err(anyhow::anyhow!("OTHER_ERROR:Network não encontrada."))
                 } else {
-                    Err(anyhow::anyhow!("OTHER_ERROR:Não foi possível remover a network: {}", e))
+                    Err(anyhow::anyhow!(
+                        "OTHER_ERROR:Não foi possível remover a network: {}",
+                        e
+                    ))
                 }
             }
         }
     }
 
     pub async fn remove_volume(&self, volume_name: &str) -> Result<()> {
-        let output = self.execute_docker_command(&format!("volume rm {}", volume_name)).await;
-        
+        let output = self
+            .execute_docker_command(&format!("volume rm {}", volume_name))
+            .await;
+
         match output {
             Ok(_) => Ok(()),
             Err(e) => {
                 let error_msg = e.to_string().to_lowercase();
                 if error_msg.contains("volume is in use") || error_msg.contains("in use") {
-                    Err(anyhow::anyhow!("IN_USE:O volume está sendo usado por containers."))
+                    Err(anyhow::anyhow!(
+                        "IN_USE:O volume está sendo usado por containers."
+                    ))
                 } else if error_msg.contains("not found") || error_msg.contains("no such volume") {
                     Err(anyhow::anyhow!("OTHER_ERROR:Volume não encontrado."))
                 } else {
-                    Err(anyhow::anyhow!("OTHER_ERROR:Não foi possível remover o volume: {}", e))
+                    Err(anyhow::anyhow!(
+                        "OTHER_ERROR:Não foi possível remover o volume: {}",
+                        e
+                    ))
                 }
             }
         }
@@ -276,9 +295,17 @@ impl RemoteDockerManager {
             .as_secs();
 
         for container in containers {
-            if let Ok((cpu_percentage, cpu_online_val, memory_usage, memory_limit, network_rx, network_tx, block_read, block_write)) = 
-                self.get_container_stats_raw(&container.id).await {
-                
+            if let Ok((
+                cpu_percentage,
+                cpu_online_val,
+                memory_usage,
+                memory_limit,
+                network_rx,
+                network_tx,
+                block_read,
+                block_write,
+            )) = self.get_container_stats_raw(&container.id).await
+            {
                 let memory_percentage = if memory_limit > 0 {
                     (memory_usage as f64 / memory_limit as f64) * 100.0
                 } else {
@@ -332,7 +359,7 @@ impl RemoteDockerManager {
         &mut self,
         container_name: &str,
     ) -> Result<(f64, u64, String, String, String)> {
-        let (cpu_percentage, cpu_online, memory_usage, memory_limit, network_rx, network_tx, _, _) = 
+        let (cpu_percentage, cpu_online, memory_usage, memory_limit, network_rx, network_tx, _, _) =
             self.get_container_stats_raw(container_name).await?;
 
         let memory_usage_mb = memory_usage as f64 / 1024.0 / 1024.0;
@@ -387,7 +414,7 @@ impl RemoteDockerManager {
 
         // Constrói o comando docker run
         let mut cmd_parts = vec!["run".to_string(), "-d".to_string()];
-        
+
         // Adiciona nome
         cmd_parts.push("--name".to_string());
         cmd_parts.push(request.name.clone());
@@ -444,7 +471,7 @@ impl RemoteDockerManager {
 
         let full_command = cmd_parts.join(" ");
         let output = self.execute_docker_command(&full_command).await?;
-        
+
         // O comando docker run retorna o ID do container
         let container_id = output.trim().to_string();
         Ok(container_id)
@@ -495,14 +522,21 @@ impl RemoteDockerManager {
     }
 
     async fn get_system_memory_limit(&self) -> Result<u64> {
-        match self.execute_docker_command("info --format '{{.MemTotal}}'").await {
+        match self
+            .execute_docker_command("info --format '{{.MemTotal}}'")
+            .await
+        {
             Ok(output) => {
                 let mem_str = output.trim();
                 Ok(mem_str.parse::<u64>().unwrap_or(0))
             }
             Err(_) => {
                 // Fallback: tenta obter via comando do sistema
-                match self.ssh_client.execute_command("cat /proc/meminfo | grep MemTotal").await {
+                match self
+                    .ssh_client
+                    .execute_command("cat /proc/meminfo | grep MemTotal")
+                    .await
+                {
                     Ok(result) => {
                         for line in result.stdout.lines() {
                             if line.starts_with("MemTotal:") {

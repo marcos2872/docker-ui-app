@@ -31,7 +31,9 @@ impl std::error::Error for SshError {}
 impl From<ssh2::Error> for SshError {
     fn from(error: ssh2::Error) -> Self {
         match error.code() {
-            ssh2::ErrorCode::Session(-18) => SshError::AuthenticationFailed(error.message().to_string()),
+            ssh2::ErrorCode::Session(-18) => {
+                SshError::AuthenticationFailed(error.message().to_string())
+            }
             ssh2::ErrorCode::Session(-2) => SshError::ConnectionFailed(error.message().to_string()),
             _ => SshError::NetworkError(error.message().to_string()),
         }

@@ -1,10 +1,10 @@
-use slint::ComponentHandle;
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
-use crate::ssh_persistence::{SshPersistence, SavedSshServer};
-use crate::docker_remote::{RemoteDockerManager, DockerManager};
+use crate::docker_remote::{DockerManager, RemoteDockerManager};
 use crate::ssh::SshConnection;
+use crate::ssh_persistence::{SavedSshServer, SshPersistence};
 use chrono::{DateTime, Local};
+use slint::ComponentHandle;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 // Importa os tipos gerados pelo Slint
 use crate::{AppWindow, SshServerData};
@@ -19,7 +19,7 @@ pub struct SshUiState {
 impl SshUiState {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let persistence = Arc::new(SshPersistence::new()?);
-        
+
         Ok(Self {
             persistence,
             connections: Arc::new(Mutex::new(HashMap::new())),
@@ -31,18 +31,23 @@ impl SshUiState {
         Ok(self.persistence.load_config()?.servers)
     }
 
-    pub async fn connect_to_server(&self, server_id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let server = self.persistence.get_server(server_id)?
+    pub async fn connect_to_server(
+        &self,
+        server_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let server = self
+            .persistence
+            .get_server(server_id)?
             .ok_or("Server not found")?;
-        
+
         let mut manager = RemoteDockerManager::new();
         let connection = server.to_ssh_connection();
-        
+
         manager.connect(connection).await?;
-        
+
         // Atualizar último acesso
         self.persistence.mark_as_connected(server_id)?;
-        
+
         // Exibir lista de containers do servidor remoto no terminal
         match manager.list_containers().await {
             Ok(containers) => {
@@ -50,19 +55,23 @@ impl SshUiState {
                 if containers.is_empty() {
                     println!("📭 Nenhum container encontrado no servidor remoto");
                 } else {
-                    println!("📦 {} containers encontrados no servidor:", containers.len());
+                    println!(
+                        "📦 {} containers encontrados no servidor:",
+                        containers.len()
+                    );
                     for (i, container) in containers.iter().enumerate() {
                         let short_id = &container.id[..std::cmp::min(12, container.id.len())];
                         let emoji = match container.state.as_str() {
                             "running" => "🟢",
-                            "exited" => "🔴", 
+                            "exited" => "🔴",
                             "paused" => "⏸️",
                             "created" => "🟡",
                             _ => "⚪",
                         };
-                        println!("  {}. {} {} | {} | {} | {}", 
-                            i + 1, 
-                            emoji, 
+                        println!(
+                            "  {}. {} {} | {} | {} | {}",
+                            i + 1,
+                            emoji,
                             container.name,
                             short_id,
                             container.image,
@@ -79,18 +88,18 @@ impl SshUiState {
                 println!("❌ Erro ao listar containers do servidor: {}", e);
             }
         }
-        
+
         // Guardar conexão ativa
         {
             let mut connections = self.connections.lock().unwrap();
             connections.insert(server_id.to_string(), manager);
         }
-        
+
         {
             let mut current = self.current_connection.lock().unwrap();
             *current = Some(server_id.to_string());
         }
-        
+
         Ok(())
     }
 
@@ -99,7 +108,7 @@ impl SshUiState {
             let mut current = self.current_connection.lock().unwrap();
             current.take()
         };
-        
+
         if let Some(server_id) = current_id {
             let mut connections = self.connections.lock().unwrap();
             if let Some(mut manager) = connections.remove(&server_id) {
@@ -132,7 +141,8 @@ impl SshUiState {
 pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
     // Converter SavedSshServer para SshServerData da UI
     let convert_to_ui_data = |server: SavedSshServer| -> SshServerData {
-        let last_connected = server.last_connected
+        let last_connected = server
+            .last_connected
             .map(|dt| {
                 let local: DateTime<Local> = dt.into();
                 local.format("%d/%m/%Y %H:%M").to_string()
@@ -149,7 +159,7 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
             description: server.description.unwrap_or_default().into(),
             last_connected: last_connected.into(),
             is_favorite: server.is_favorite,
-            is_connected: false, // Será atualizado dinamicamente
+            is_connected: false,  // Será atualizado dinamicamente
             is_connecting: false, // Será atualizado dinamicamente
         }
     };
@@ -157,11 +167,8 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
     // Carregar servidores iniciais
     let ssh_state_clone = ssh_state.clone();
     if let Ok(servers) = ssh_state_clone.load_servers() {
-        let ui_servers: Vec<SshServerData> = servers
-            .into_iter()
-            .map(convert_to_ui_data)
-            .collect();
-        
+        let ui_servers: Vec<SshServerData> = servers.into_iter().map(convert_to_ui_data).collect();
+
         ui.set_ssh_servers(ui_servers.as_slice().into());
     }
 
@@ -172,14 +179,14 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
         let ssh_state = ssh_state_clone.clone();
         let ui_weak = ui_weak.clone();
         let server_id = server_id.to_string();
-        
+
         // Verificar se já está conectado a este servidor
         let current_connected = ssh_state.get_current_server_id().unwrap_or_default();
         let is_disconnect = current_connected == server_id;
-        
+
         if is_disconnect {
             println!("Desconectando servidor com ID: {}", server_id);
-            
+
             // Ativar loading para desconectar
             if let Some(ui) = ui_weak.upgrade() {
                 if let Ok(servers) = ssh_state.load_servers() {
@@ -193,25 +200,25 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                             ui_data
                         })
                         .collect();
-                    
+
                     ui.set_ssh_servers(ui_servers.as_slice().into());
                 }
             }
-            
+
             // Simular um pequeno delay para mostrar o loading (desconexão é instantânea)
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_millis(500));
-                
+
                 slint::invoke_from_event_loop(move || {
                     // Desconectar
                     ssh_state.disconnect_current_server();
-                    
+
                     if let Some(ui) = ui_weak.upgrade() {
                         ui.set_current_ssh_server_id("".into());
                         ui.set_notification_message("Desconectado com sucesso!".into());
                         ui.set_notification_is_error(false);
                         ui.set_show_notification(true);
-                        
+
                         // Atualizar lista de servidores
                         if let Ok(servers) = ssh_state.load_servers() {
                             let ui_servers: Vec<SshServerData> = servers
@@ -223,18 +230,18 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                                     ui_data
                                 })
                                 .collect();
-                            
+
                             ui.set_ssh_servers(ui_servers.as_slice().into());
                         }
                     }
                 }).unwrap();
             });
-            
+
             return;
         }
-        
+
         println!("Conectando servidor com ID: {}", server_id);
-        
+
         // Ativar loading
         if let Some(ui) = ui_weak.upgrade() {
             if let Ok(servers) = ssh_state.load_servers() {
@@ -248,11 +255,11 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                         ui_data
                     })
                     .collect();
-                
+
                 ui.set_ssh_servers(ui_servers.as_slice().into());
             }
         }
-        
+
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
@@ -261,14 +268,14 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                         println!("Conexão SSH bem-sucedida para servidor: {}", server_id);
                         let server_id_success = server_id.clone();
                         let ssh_state_success = ssh_state.clone();
-                        
+
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak.upgrade() {
                                 ui.set_current_ssh_server_id(server_id_success.clone().into());
                                 ui.set_notification_message("Conectado com sucesso!".into());
                                 ui.set_notification_is_error(false);
                                 ui.set_show_notification(true);
-                                
+
                                 // Atualizar lista de servidores (desativa loading)
                                 if let Ok(servers) = ssh_state_success.load_servers() {
                                     let current_id = ssh_state_success.get_current_server_id().unwrap_or_default();
@@ -281,7 +288,7 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                                             ui_data
                                         })
                                         .collect();
-                                    
+
                                     ui.set_ssh_servers(ui_servers.as_slice().into());
                                 }
                             } else {
@@ -292,13 +299,13 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                     Err(e) => {
                         println!("Erro na conexão SSH para servidor {}: {}", server_id, e);
                         let error_msg = std::format!("Erro na conexão: {}", e);
-                        
+
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak.upgrade() {
                                 ui.set_notification_message(error_msg.into());
                                 ui.set_notification_is_error(true);
                                 ui.set_show_notification(true);
-                                
+
                                 // Desativar loading no caso de erro
                                 if let Ok(servers) = ssh_state.load_servers() {
                                     let current_id = ssh_state.get_current_server_id().unwrap_or_default();
@@ -311,7 +318,7 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                                             ui_data
                                         })
                                         .collect();
-                                    
+
                                     ui.set_ssh_servers(ui_servers.as_slice().into());
                                 }
                             } else {
@@ -356,7 +363,7 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                     ui.set_notification_message("Servidor salvo com sucesso!".into());
                     ui.set_notification_is_error(false);
                     ui.set_show_notification(true);
-                    
+
                     // Limpar formulário após salvar com sucesso
                     ui.set_ssh_server_data(SshServerData {
                         id: "".into(),
@@ -372,10 +379,11 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                         is_connecting: false,
                     });
                     ui.set_ssh_modal_visible(false);
-                    
+
                     // Recarregar lista
                     if let Ok(servers) = ssh_state_clone.load_servers() {
-                        let current_id = ssh_state_clone.get_current_server_id().unwrap_or_default();
+                        let current_id =
+                            ssh_state_clone.get_current_server_id().unwrap_or_default();
                         let ui_servers: Vec<SshServerData> = servers
                             .into_iter()
                             .map(|server| {
@@ -384,7 +392,7 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                                 ui_data
                             })
                             .collect();
-                        
+
                         ui.set_ssh_servers(ui_servers.as_slice().into());
                     }
                 }
@@ -404,7 +412,10 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
     let ssh_state_clone = ssh_state.clone();
     let ui_weak = ui.as_weak();
     ui.on_ssh_edit_server(move |server_id| {
-        if let Ok(Some(server)) = ssh_state_clone.persistence.get_server(&server_id.to_string()) {
+        if let Ok(Some(server)) = ssh_state_clone
+            .persistence
+            .get_server(&server_id.to_string())
+        {
             if let Some(ui) = ui_weak.upgrade() {
                 ui.set_ssh_server_data(convert_to_ui_data(server));
                 ui.set_ssh_edit_mode(true);
@@ -417,16 +428,20 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
     let ssh_state_clone = ssh_state.clone();
     let ui_weak = ui.as_weak();
     ui.on_ssh_delete_server(move |server_id| {
-        match ssh_state_clone.persistence.remove_server(&server_id.to_string()) {
+        match ssh_state_clone
+            .persistence
+            .remove_server(&server_id.to_string())
+        {
             Ok(_) => {
                 if let Some(ui) = ui_weak.upgrade() {
                     ui.set_notification_message("Servidor removido com sucesso!".into());
                     ui.set_notification_is_error(false);
                     ui.set_show_notification(true);
-                    
+
                     // Recarregar lista
                     if let Ok(servers) = ssh_state_clone.load_servers() {
-                        let current_id = ssh_state_clone.get_current_server_id().unwrap_or_default();
+                        let current_id =
+                            ssh_state_clone.get_current_server_id().unwrap_or_default();
                         let ui_servers: Vec<SshServerData> = servers
                             .into_iter()
                             .map(|server| {
@@ -435,7 +450,7 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                                 ui_data
                             })
                             .collect();
-                        
+
                         ui.set_ssh_servers(ui_servers.as_slice().into());
                     }
                 }
@@ -454,12 +469,16 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
     let ssh_state_clone = ssh_state.clone();
     let ui_weak = ui.as_weak();
     ui.on_ssh_toggle_favorite(move |server_id| {
-        match ssh_state_clone.persistence.toggle_favorite(&server_id.to_string()) {
+        match ssh_state_clone
+            .persistence
+            .toggle_favorite(&server_id.to_string())
+        {
             Ok(_) => {
                 if let Some(ui) = ui_weak.upgrade() {
                     // Recarregar lista
                     if let Ok(servers) = ssh_state_clone.load_servers() {
-                        let current_id = ssh_state_clone.get_current_server_id().unwrap_or_default();
+                        let current_id =
+                            ssh_state_clone.get_current_server_id().unwrap_or_default();
                         let ui_servers: Vec<SshServerData> = servers
                             .into_iter()
                             .map(|server| {
@@ -468,7 +487,7 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                                 ui_data
                             })
                             .collect();
-                        
+
                         ui.set_ssh_servers(ui_servers.as_slice().into());
                     }
                 }
@@ -498,7 +517,7 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                         ui_data
                     })
                     .collect();
-                
+
                 ui.set_ssh_servers(ui_servers.as_slice().into());
             }
         }
@@ -529,7 +548,7 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                     Ok(_) => {
                         println!("Conexão SSH bem-sucedida!");
                         test_manager.disconnect();
-                        
+
                         // Usar invoke_from_event_loop para atualizar a UI na thread principal
                         let ui_weak_success = ui_weak.clone();
                         slint::invoke_from_event_loop(move || {
@@ -548,7 +567,7 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                         println!("Erro na conexão SSH: {}", e);
                         let error_msg = std::format!("Falha no teste: {}", e);
                         let ui_weak_error = ui_weak.clone();
-                        
+
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_error.upgrade() {
                                 println!("Atualizando UI com erro...");

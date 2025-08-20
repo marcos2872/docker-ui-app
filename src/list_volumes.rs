@@ -79,27 +79,37 @@ fn format_creation_time(created: &str) -> slint::SharedString {
     }
 
     use chrono::{DateTime, Utc};
-    
+
     // Tenta fazer parse do timestamp ISO8601 do Docker
     match DateTime::parse_from_rfc3339(created) {
         Ok(created_time) => {
             let now = Utc::now();
             let created_utc = created_time.with_timezone(&Utc);
             let duration = now.signed_duration_since(created_utc);
-            
+
             let days = duration.num_days();
             let hours = duration.num_hours();
             let minutes = duration.num_minutes();
             let seconds = duration.num_seconds();
-            
+
             if days > 0 {
                 format!("há {} dia{}", days, if days == 1 { "" } else { "s" }).into()
             } else if hours > 0 {
                 format!("há {} hora{}", hours, if hours == 1 { "" } else { "s" }).into()
             } else if minutes > 0 {
-                format!("há {} minuto{}", minutes, if minutes == 1 { "" } else { "s" }).into()
+                format!(
+                    "há {} minuto{}",
+                    minutes,
+                    if minutes == 1 { "" } else { "s" }
+                )
+                .into()
             } else if seconds > 0 {
-                format!("há {} segundo{}", seconds, if seconds == 1 { "" } else { "s" }).into()
+                format!(
+                    "há {} segundo{}",
+                    seconds,
+                    if seconds == 1 { "" } else { "s" }
+                )
+                .into()
             } else {
                 "agora".into()
             }
