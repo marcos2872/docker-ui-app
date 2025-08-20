@@ -415,6 +415,7 @@ export component AppWindow inherits Window {
                         last-connected: "",
                         is-favorite: false,
                         is-connected: false,
+                        is-connecting: false,
                     };
                     root.ssh-edit-mode = false;
                     root.ssh-modal-visible = true;
@@ -527,6 +528,7 @@ export component AppWindow inherits Window {
                 last-connected: "",
                 is-favorite: false,
                 is-connected: false,
+                is-connecting: false,
             };
             root.ssh-is-testing = false;
             root.ssh-is-saving = false;

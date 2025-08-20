@@ -12,6 +12,7 @@ export struct SshServerData {
     last-connected: string,
     is-favorite: bool,
     is-connected: bool,
+    is-connecting: bool,
 }
 
 // Lista básica de servidores SSH
@@ -115,20 +116,24 @@ export component SshServersList inherits Rectangle {
                     Rectangle {
                         width: 80px;
                         height: 30px;
-                        background: server.is-connected ? #dc3545 : #0ea5e9;
+                        background: server.is-connecting ? #6c757d : (server.is-connected ? #dc3545 : #0ea5e9);
                         border-radius: 6px;
                         
                         Text {
-                            text: server.is-connected ? "Desconectar" : "Conectar";
+                            text: server.is-connecting ? 
+                                (server.is-connected ? "Desconectando..." : "Conectando...") : 
+                                (server.is-connected ? "Desconectar" : "Conectar");
                             color: white;
                             horizontal-alignment: center;
                             vertical-alignment: center;
-                            font-size: 12px;
+                            font-size: server.is-connecting ? 9px : 12px;
                         }
                         
                         TouchArea {
                             clicked => {
-                                connect-server(server.id);
+                                if (!server.is-connecting) {
+                                    connect-server(server.id);
+                                }
                             }
                         }
                     }
