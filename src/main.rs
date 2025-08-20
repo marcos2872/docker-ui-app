@@ -15,12 +15,15 @@ mod list_images;
 mod list_networks;
 mod list_volumes;
 mod ssh;
+mod ssh_persistence;
+mod ssh_ui_integration;
 mod ui;
 
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
 
 use crate::ui::{UiApp, setup_docker_ui};
+use crate::ssh_ui_integration::{SshUiState, setup_ssh_ui};
 
 // Estado global da aplicação
 #[derive(Clone)]
@@ -158,6 +161,10 @@ async fn main() -> Result<(), slint::PlatformError> {
         container_memory_renderer,
     )
     .await;
+
+    // Configura interface SSH
+    let ssh_state = Arc::new(SshUiState::new().expect("Failed to initialize SSH state"));
+    setup_ssh_ui(&ui, ssh_state);
 
     // Executa aplicação
     ui.run()

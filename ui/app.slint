@@ -6,6 +6,7 @@ import { NetworksList } from "network.slint";
 import { VolumesList } from "volumes.slint";
 import { CreateContainerModal } from "create-container.slint";
 import { NotificationTooltip } from "notification.slint";
+import { SshServersList, SshServerModal, SshConnectionStatus, SshServerData } from "ssh-simple.slint";
 
 // Interface principal da aplicação Docker UI
 
@@ -81,6 +82,16 @@ export component AppWindow inherits Window {
     // Propriedades gerais
     in-out property <string> docker-status: "Desconhecido";
     in-out property <int> current-screen: 0;
+    
+    // Propriedades SSH
+    in-out property <[SshServerData]> ssh-servers;
+    in-out property <string> ssh-search-text;
+    in-out property <string> current-ssh-server-id;
+    in-out property <bool> ssh-modal-visible: false;
+    in-out property <SshServerData> ssh-server-data;
+    in-out property <bool> ssh-edit-mode: false;
+    in-out property <bool> ssh-is-testing: false;
+    in-out property <bool> ssh-is-saving: false;
 
     // Propriedades de informações do Docker
     in-out property <int> total-containers;
@@ -148,6 +159,15 @@ export component AppWindow inherits Window {
     in-out property <string> volume-loading: "";
     callback refresh-volumes-clicked();
     callback volume-action(string, string);
+
+    // Callbacks SSH
+    callback ssh-connect-server(string);
+    callback ssh-edit-server(string);
+    callback ssh-delete-server(string);
+    callback ssh-toggle-favorite(string);
+    callback ssh-refresh-servers();
+    callback ssh-save-server(SshServerData);
+    callback ssh-test-connection(SshServerData);
 
     // Propriedades do modal de criação de container
     in-out property <bool> show-create-modal: false;
@@ -250,6 +270,14 @@ export component AppWindow inherits Window {
                             active: root.current-screen == 4;
                             clicked => {
                                 root.screen-changed(4);
+                            }
+                        }
+
+                        HeaderButton {
+                            text: "SSH Servers";
+                            active: root.current-screen == 5;
+                            clicked => {
+                                root.screen-changed(5);
                             }
                         }
                     }
@@ -371,7 +399,43 @@ export component AppWindow inherits Window {
                     root.volume-action(name, action);
                 }
             }
-            if root.current-screen == 5: ContainerDetails {
+            if root.current-screen == 5: SshServersList {
+                servers: root.ssh-servers;
+                search-text <=> root.ssh-search-text;
+                current-server-id: root.current-ssh-server-id;
+                add-server => {
+                    root.ssh-server-data = {
+                        id: "",
+                        name: "",
+                        host: "",
+                        port: 22,
+                        username: "",
+                        password: "",
+                        description: "",
+                        last-connected: "",
+                        is-favorite: false,
+                        is-connected: false,
+                    };
+                    root.ssh-edit-mode = false;
+                    root.ssh-modal-visible = true;
+                }
+                connect-server(id) => {
+                    root.ssh-connect-server(id);
+                }
+                edit-server(id) => {
+                    root.ssh-edit-server(id);
+                }
+                delete-server(id) => {
+                    root.ssh-delete-server(id);
+                }
+                toggle-favorite(id) => {
+                    root.ssh-toggle-favorite(id);
+                }
+                refresh-servers => {
+                    root.ssh-refresh-servers();
+                }
+            }
+            if root.current-screen == 6: ContainerDetails {
                 container: root.selected-container;
                 loading-action: root.container-loading;
                 container-error: root.container-error;
@@ -434,6 +498,39 @@ export component AppWindow inherits Window {
 
         cancel-clicked => {
             root.cancel-create-container();
+        }
+    }
+
+    // Modal SSH
+    SshServerModal {
+        server-data <=> root.ssh-server-data;
+        is-edit-mode: root.ssh-edit-mode;
+        modal-visible: root.ssh-modal-visible;
+        is-testing <=> root.ssh-is-testing;
+        is-saving <=> root.ssh-is-saving;
+        save-server(server) => {
+            root.ssh-save-server(server);
+        }
+        test-connection(server) => {
+            root.ssh-test-connection(server);
+        }
+        close-modal => {
+            // Limpar formulário quando fechar
+            root.ssh-server-data = {
+                id: "",
+                name: "",
+                host: "",
+                port: 22,
+                username: "",
+                password: "",
+                description: "",
+                last-connected: "",
+                is-favorite: false,
+                is-connected: false,
+            };
+            root.ssh-is-testing = false;
+            root.ssh-is-saving = false;
+            root.ssh-modal-visible = false;
         }
     }
 

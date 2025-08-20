@@ -1,0 +1,448 @@
+// Interface para gerenciar servidores SSH
+
+// Estrutura para servidor SSH na UI
+export struct SshServerData {
+    id: string,
+    name: string,
+    host: string,
+    port: int,
+    username: string,
+    description: string,
+    last_connected: string,
+    is_favorite: bool,
+    is_connected: bool,
+}
+
+// Modal para adicionar/editar servidor SSH
+export component SshServerModal inherits Dialog {
+    in-out property <SshServerData> server-data;
+    in property <bool> is-edit-mode: false;
+
+    callback save-server(SshServerData);
+    callback test-connection(SshServerData);
+
+    preferred-width: 500px;
+    preferred-height: 550px;
+
+    title: is-edit-mode ? "Editar Servidor SSH" : "Adicionar Servidor SSH";
+
+    VerticalLayout {
+        spacing: 15px;
+        padding: 20px;
+
+        // Nome do servidor
+        VerticalLayout {
+            spacing: 5px;
+            Text {
+                text: "Nome do Servidor:";
+                font-weight: 600;
+            }
+
+            Rectangle {
+                height: 30px;
+                border-width: 1px;
+                border-color: #ccc;
+                TextInput {
+                    text <=> server-data.name;
+                    placeholder-text: "Ex: Servidor de Produção";
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Host
+        VerticalLayout {
+            spacing: 5px;
+            Text {
+                text: "Host/IP:";
+                font-weight: 600;
+            }
+
+            Rectangle {
+                height: 30px;
+                border-width: 1px;
+                border-color: #ccc;
+                TextInput {
+                    text <=> server-data.host;
+                    placeholder-text: "192.168.1.100 ou example.com";
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // Porta e usuário
+        HorizontalLayout {
+            spacing: 10px;
+
+            VerticalLayout {
+                spacing: 5px;
+                Text {
+                    text: "Porta:";
+                    font-weight: 600;
+                }
+
+                SpinBox {
+                    value <=> server-data.port;
+                    minimum: 1;
+                    maximum: 65535;
+                }
+            }
+
+            VerticalLayout {
+                spacing: 5px;
+                Text {
+                    text: "Usuário:";
+                    font-weight: 600;
+                }
+
+                LineEdit {
+                    text <=> server-data.username;
+                    placeholder-text: "root, admin, etc.";
+                }
+            }
+        }
+
+        // Descrição
+        VerticalLayout {
+            spacing: 5px;
+            Text {
+                text: "Descrição (opcional):";
+                font-weight: 600;
+            }
+
+            LineEdit {
+                text <=> server-data.description;
+                placeholder-text: "Servidor web principal, banco de dados...";
+            }
+        }
+
+        // Favorito
+        HorizontalLayout {
+            CheckBox {
+                text: "Marcar como favorito";
+                checked <=> server-data.is-favorite;
+            }
+        }
+
+        // Botões
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: end;
+
+            Button {
+                text: "Testar Conexão";
+                clicked => {
+                    test-connection(server-data);
+                }
+            }
+
+            Button {
+                text: "Cancelar";
+                clicked => {
+                    self.close();
+                }
+            }
+
+            Button {
+                text: is-edit-mode ? "Salvar" : "Adicionar";
+                clicked => {
+                    save-server(server-data);
+                    self.close();
+                }
+            }
+        }
+    }
+}
+
+// Item da lista de servidores
+component SshServerItem inherits Rectangle {
+    in property <SshServerData> server;
+
+    callback connect-clicked(string);
+    callback edit-clicked(string);
+    callback delete-clicked(string);
+    callback toggle-favorite(string);
+
+    height: 80px;
+    background: server.is-connected ? #e8f5e8 : #f8f9fa;
+    border-radius: 8px;
+    border-width: server.is-connected ? 2px : 1px;
+    border-color: server.is-connected ? #28a745 : #e9ecef;
+
+    HorizontalLayout {
+        padding: 15px;
+        spacing: 10px;
+
+        // Status indicator
+        Rectangle {
+            width: 12px;
+            height: 12px;
+            border-radius: 6px;
+            background: server.is-connected ? #28a745 : #6c757d;
+            y: (parent.height - self.height) / 2;
+        }
+
+        // Informações do servidor
+        VerticalLayout {
+            spacing: 5px;
+
+            HorizontalLayout {
+                spacing: 10px;
+
+                Text {
+                    text: server.name;
+                    font-weight: 700;
+                    font-size: 14px;
+                }
+
+                if server.is-favorite: Text {
+                    text: "⭐";
+                    font-size: 12px;
+                }
+            }
+
+            Text {
+                text: server.username + "@" + server.host + ":" + server.port;
+                color: #6c757d;
+                font-size: 12px;
+            }
+
+            if server.description != "": Text {
+                text: server.description;
+                color: #6c757d;
+                font-size: 11px;
+                overflow: elide;
+            }
+        }
+
+        // Última conexão
+        VerticalLayout {
+            alignment: center;
+
+            if server.last-connected != "": Text {
+                text: "Último acesso:";
+                font-size: 10px;
+                color: #6c757d;
+            }
+
+            if server.last-connected != "": Text {
+                text: server.last-connected;
+                font-size: 10px;
+                color: #6c757d;
+            }
+        }
+
+        // Botões de ação
+        HorizontalLayout {
+            spacing: 5px;
+            alignment: end;
+
+            Button {
+                text: server.is-connected ? "Desconectar" : "Conectar";
+                primary: !server.is-connected;
+                width: 80px;
+                clicked => {
+                    connect-clicked(server.id);
+                }
+            }
+
+            Button {
+                text: "⚙️";
+                width: 35px;
+                clicked => {
+                    edit-clicked(server.id);
+                }
+            }
+
+            Button {
+                text: server.is-favorite ? "💔" : "💙";
+                width: 35px;
+                clicked => {
+                    toggle-favorite(server.id);
+                }
+            }
+
+            Button {
+                text: "🗑️";
+                width: 35px;
+                clicked => {
+                    delete-clicked(server.id);
+                }
+            }
+        }
+    }
+
+    // Efeito hover
+    TouchArea {
+        mouse-cursor: pointer;
+    }
+}
+
+// Lista principal de servidores SSH
+export component SshServersList inherits Rectangle {
+    in-out property <[SshServerData]> servers;
+    in-out property <string> search-text;
+    in property <string> current-server-id;
+
+    callback add-server();
+    callback connect-server(string);
+    callback edit-server(string);
+    callback delete-server(string);
+    callback toggle-favorite(string);
+    callback refresh-servers();
+
+    background: white;
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 15px;
+
+        // Header
+        HorizontalLayout {
+            spacing: 15px;
+            alignment: space-between;
+
+            Text {
+                text: "Servidores SSH";
+                font-size: 24px;
+                font-weight: 700;
+                color: #343a40;
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+
+                Button {
+                    text: "🔄 Atualizar";
+                    clicked => {
+                        refresh-servers();
+                    }
+                }
+
+                Button {
+                    text: "➕ Adicionar Servidor";
+                    primary: true;
+                    clicked => {
+                        add-server();
+                    }
+                }
+            }
+        }
+
+        // Barra de busca
+        HorizontalLayout {
+            spacing: 10px;
+
+            LineEdit {
+                text <=> search-text;
+                placeholder-text: "Buscar servidores...";
+                width: 300px;
+            }
+
+            Text {
+                text: "🔍";
+                vertical-alignment: center;
+            }
+        }
+
+        // Lista de servidores
+        ScrollView {
+            VerticalLayout {
+                spacing: 10px;
+
+                if servers.length == 0: Rectangle {
+                    height: 200px;
+                    background: #f8f9fa;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: #e9ecef;
+
+                    VerticalLayout {
+                        alignment: center;
+                        spacing: 10px;
+
+                        Text {
+                            text: "🖥️";
+                            font-size: 48px;
+                        }
+
+                        Text {
+                            text: "Nenhum servidor SSH configurado";
+                            font-size: 16px;
+                            color: #6c757d;
+                        }
+
+                        Text {
+                            text: "Clique em 'Adicionar Servidor' para começar";
+                            font-size: 14px;
+                            color: #6c757d;
+                        }
+                    }
+                }
+
+                for server in servers: SshServerItem {
+                    server: server;
+                    connect-clicked(id) => {
+                        connect-server(id);
+                    }
+                    edit-clicked(id) => {
+                        edit-server(id);
+                    }
+                    delete-clicked(id) => {
+                        delete-server(id);
+                    }
+                    toggle-favorite(id) => {
+                        toggle-favorite(id);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Componente de status de conexão SSH
+export component SshConnectionStatus inherits Rectangle {
+    in property <string> server-name;
+    in property <string> server-host;
+    in property <bool> is-connected;
+
+    callback disconnect-clicked();
+
+    height: 40px;
+    background: is-connected ? #d4edda : #f8d7da;
+    border-radius: 4px;
+
+    HorizontalLayout {
+        padding: 10px;
+        spacing: 10px;
+        alignment: space-between;
+
+        HorizontalLayout {
+            spacing: 10px;
+
+            Rectangle {
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: is-connected ? #28a745 : #dc3545;
+                y: (parent.height - self.height) / 2;
+            }
+
+            Text {
+                text: is-connected ? ("Conectado a: " + server-name + " (" + server-host + ")") : "Não conectado";
+                font-size: 12px;
+                color: is-connected ? #155724 : #721c24;
+                vertical-alignment: center;
+            }
+        }
+
+        if is-connected: Button {
+            text: "Desconectar";
+            width: 80px;
+            height: 25px;
+            clicked => {
+                disconnect-clicked();
+            }
+        }
+    }
+}

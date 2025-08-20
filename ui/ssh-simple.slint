@@ -1,0 +1,493 @@
+// Interface simplificada para gerenciar servidores SSH
+
+// Estrutura para servidor SSH na UI  
+export struct SshServerData {
+    id: string,
+    name: string,
+    host: string,
+    port: int,
+    username: string,
+    password: string,
+    description: string,
+    last-connected: string,
+    is-favorite: bool,
+    is-connected: bool,
+}
+
+// Lista básica de servidores SSH
+export component SshServersList inherits Rectangle {
+    in-out property <[SshServerData]> servers;
+    in-out property <string> search-text;
+    in property <string> current-server-id;
+    
+    callback add-server();
+    callback connect-server(string);
+    callback edit-server(string);
+    callback delete-server(string);
+    callback toggle-favorite(string);
+    callback refresh-servers();
+    
+    background: #1a1c1e;
+    
+    VerticalLayout {
+        padding: 20px;
+        spacing: 15px;
+        
+        // Header
+        HorizontalLayout {
+            spacing: 15px;
+            
+            Text {
+                text: "Servidores SSH";
+                font-size: 24px;
+                font-weight: 700;
+                color: #ffffff;
+            }
+            
+            Rectangle {
+                width: 100px;
+                height: 30px;
+                background: #0ea5e9;
+                border-radius: 6px;
+                
+                Text {
+                    text: "Adicionar";
+                    color: white;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                
+                TouchArea {
+                    clicked => {
+                        add-server();
+                    }
+                }
+            }
+        }
+        
+        // Lista de servidores
+        VerticalLayout {
+            spacing: 10px;
+            
+            if servers.length == 0: Rectangle {
+                height: 200px;
+                background: #2e3030;
+                border-radius: 8px;
+                
+                Text {
+                    text: "Nenhum servidor SSH configurado\nClique em 'Adicionar' para começar";
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    color: #ffffff;
+                }
+            }
+            
+            for server in servers: Rectangle {
+                height: 80px;
+                background: server.is-connected ? #1a4c26 : #2e3030;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: server.is-connected ? #28a745 : #404244;
+                
+                HorizontalLayout {
+                    padding: 15px;
+                    spacing: 10px;
+                    
+                    // Info do servidor
+                    VerticalLayout {
+                        spacing: 5px;
+                        
+                        Text {
+                            text: server.name;
+                            font-weight: 700;
+                            font-size: 14px;
+                            color: #ffffff;
+                        }
+                        
+                        Text {
+                            text: server.username + "@" + server.host + ":" + server.port;
+                            color: #b0b0b0;
+                            font-size: 12px;
+                        }
+                    }
+                    
+                    // Botão conectar
+                    Rectangle {
+                        width: 80px;
+                        height: 30px;
+                        background: server.is-connected ? #dc3545 : #0ea5e9;
+                        border-radius: 6px;
+                        
+                        Text {
+                            text: server.is-connected ? "Desconectar" : "Conectar";
+                            color: white;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                        }
+                        
+                        TouchArea {
+                            clicked => {
+                                connect-server(server.id);
+                            }
+                        }
+                    }
+                    
+                    // Botão deletar
+                    Rectangle {
+                        width: 30px;
+                        height: 30px;
+                        background: #dc3545;
+                        border-radius: 6px;
+                        
+                        Text {
+                            text: "X";
+                            color: white;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            font-size: 12px;
+                        }
+                        
+                        TouchArea {
+                            clicked => {
+                                delete-server(server.id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Modal simplificado para servidor SSH
+export component SshServerModal inherits Rectangle {
+    in-out property <SshServerData> server-data;
+    in property <bool> is-edit-mode: false;
+    in property <bool> modal-visible: false;
+    
+    // Propriedades de loading
+    in-out property <bool> is-testing: false;
+    in-out property <bool> is-saving: false;
+    
+    // Propriedades individuais para binding
+    in-out property <string> name-input: server-data.name;
+    in-out property <string> host-input: server-data.host;
+    in-out property <string> port-input: server-data.port == 0 ? "22" : server-data.port;
+    in-out property <string> username-input: server-data.username;
+    in-out property <string> password-input: server-data.password;
+    
+    callback save-server(SshServerData);
+    callback test-connection(SshServerData);
+    callback close-modal();
+    
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    
+    if modal-visible: Rectangle {
+        // Overlay de fundo translúcido que bloqueia interação
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        
+        TouchArea {
+            // Bloqueia todos os cliques no fundo
+            clicked => {
+                // Não fazer nada - bloqueia interação
+            }
+        }
+        
+        Rectangle {
+            width: 420px;
+            height: 420px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: #2e3030;
+            border-radius: 8px;
+            drop-shadow-blur: 10px;
+            drop-shadow-color: #00000040;
+        
+        VerticalLayout {
+            padding: 20px;
+            spacing: 15px;
+            
+            // Título
+            Text {
+                text: is-edit-mode ? "Editar Servidor SSH" : "Adicionar Servidor SSH";
+                font-size: 18px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                color: #ffffff;
+            }
+            
+            // Nome Label
+            VerticalLayout {
+                spacing: 5px;
+                Text {
+                    text: "Nome Label:";
+                    font-weight: 600;
+                    color: #ffffff;
+                }
+                Rectangle {
+                    height: 30px;
+                    border-width: 1px;
+                    border-color: #404244;
+                    background: #404244;
+                    border-radius: 4px;
+                    TextInput {
+                        text <=> root.name-input;
+                        vertical-alignment: center;
+                        horizontal-alignment: left;
+                        color: #ffffff;
+                    }
+                }
+            }
+            
+            // Host e Porta
+            HorizontalLayout {
+                spacing: 10px;
+                
+                // Host
+                VerticalLayout {
+                    spacing: 5px;
+                    Text {
+                        text: "Host:";
+                        font-weight: 600;
+                        color: #ffffff;
+                    }
+                    Rectangle {
+                        height: 30px;
+                        border-width: 1px;
+                        border-color: #404244;
+                        background: #404244;
+                        border-radius: 4px;
+                        TextInput {
+                            text <=> root.host-input;
+                            vertical-alignment: center;
+                            horizontal-alignment: left;
+                            color: #ffffff;
+                        }
+                    }
+                }
+                
+                // Porta
+                VerticalLayout {
+                    spacing: 5px;
+                    width: 80px;
+                    Text {
+                        text: "Porta:";
+                        font-weight: 600;
+                        color: #ffffff;
+                    }
+                    Rectangle {
+                        height: 30px;
+                        border-width: 1px;
+                        border-color: #404244;
+                        background: #404244;
+                        border-radius: 4px;
+                        TextInput {
+                            text <=> root.port-input;
+                            vertical-alignment: center;
+                            horizontal-alignment: center;
+                            color: #ffffff;
+                        }
+                    }
+                }
+            }
+            
+            // User
+            VerticalLayout {
+                spacing: 5px;
+                Text {
+                    text: "User:";
+                    font-weight: 600;
+                    color: #ffffff;
+                }
+                Rectangle {
+                    height: 30px;
+                    border-width: 1px;
+                    border-color: #404244;
+                    background: #404244;
+                    border-radius: 4px;
+                    TextInput {
+                        text <=> root.username-input;
+                        vertical-alignment: center;
+                        horizontal-alignment: left;
+                        color: #ffffff;
+                    }
+                }
+            }
+            
+            // Password
+            VerticalLayout {
+                spacing: 5px;
+                Text {
+                    text: "Password:";
+                    font-weight: 600;
+                    color: #ffffff;
+                }
+                Rectangle {
+                    height: 30px;
+                    border-width: 1px;
+                    border-color: #404244;
+                    background: #404244;
+                    border-radius: 4px;
+                    TextInput {
+                        text <=> root.password-input;
+                        vertical-alignment: center;
+                        horizontal-alignment: left;
+                        color: #ffffff;
+                        input-type: password;
+                    }
+                }
+            }
+            
+            // Botões
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: center;
+                
+                // Testar Conexão
+                Rectangle {
+                    width: 110px;
+                    height: 30px;
+                    background: root.is-testing ? #6c757d : #28a745;
+                    border-radius: 6px;
+                    
+                    Text {
+                        text: root.is-testing ? "Testando..." : "Testar Conexão";
+                        color: white;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        font-size: 11px;
+                    }
+                    
+                    TouchArea {
+                        clicked => {
+                            if (!root.is-testing && !root.is-saving) {
+                                // Atualizar dados temporários para teste
+                                root.server-data.name = root.name-input;
+                                root.server-data.host = root.host-input;
+                                root.server-data.port = root.port-input == "" ? 22 : root.port-input.to-float();
+                                root.server-data.username = root.username-input;
+                                root.server-data.password = root.password-input;
+                                root.is-testing = true;
+                                test-connection(root.server-data);
+                            }
+                        }
+                    }
+                }
+                
+                // Cancelar
+                Rectangle {
+                    width: 80px;
+                    height: 30px;
+                    background: (root.is-testing || root.is-saving) ? #4a5568 : #6c757d;
+                    border-radius: 6px;
+                    
+                    Text {
+                        text: "Cancelar";
+                        color: white;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                    }
+                    
+                    TouchArea {
+                        clicked => {
+                            if (!root.is-testing && !root.is-saving) {
+                                // Limpar formulário
+                                root.name-input = "";
+                                root.host-input = "";
+                                root.port-input = "22";
+                                root.username-input = "";
+                                root.password-input = "";
+                                close-modal();
+                            }
+                        }
+                    }
+                }
+                
+                // Adicionar/Salvar
+                Rectangle {
+                    width: 80px;
+                    height: 30px;
+                    background: root.is-saving ? #6c757d : #0ea5e9;
+                    border-radius: 6px;
+                    
+                    Text {
+                        text: root.is-saving ? "Salvando..." : (is-edit-mode ? "Salvar" : "Adicionar");
+                        color: white;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        font-size: 12px;
+                    }
+                    
+                    TouchArea {
+                        clicked => {
+                            if (!root.is-testing && !root.is-saving) {
+                                // Atualizar dados do servidor com os inputs
+                                root.server-data.name = root.name-input;
+                                root.server-data.host = root.host-input;
+                                root.server-data.port = root.port-input == "" ? 22 : root.port-input.to-float();
+                                root.server-data.username = root.username-input;
+                                root.server-data.password = root.password-input;
+                                root.is-saving = true;
+                                save-server(root.server-data);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        }
+    }
+}
+
+// Status de conexão SSH
+export component SshConnectionStatus inherits Rectangle {
+    in property <string> server-name;
+    in property <string> server-host;
+    in property <bool> is-connected;
+    
+    callback disconnect-clicked();
+    
+    height: 40px;
+    background: is-connected ? #1a4c26 : #4c1a1a;
+    
+    HorizontalLayout {
+        padding: 10px;
+        spacing: 10px;
+        
+        Text {
+            text: is-connected ? 
+                ("SSH: Conectado a " + server-name + " (" + server-host + ")") : 
+                "SSH: Não conectado";
+            font-size: 12px;
+            color: is-connected ? #ffffff : #ffffff;
+            vertical-alignment: center;
+        }
+        
+        if is-connected: Rectangle {
+            width: 80px;
+            height: 25px;
+            background: #dc3545;
+            border-radius: 6px;
+            
+            Text {
+                text: "Desconectar";
+                color: white;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-size: 10px;
+            }
+            
+            TouchArea {
+                clicked => {
+                    disconnect-clicked();
+                }
+            }
+        }
+    }
+}

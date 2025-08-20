@@ -20,6 +20,8 @@ rand = "0.8"
 plotters = "0.3"
 ssh2 = "0.9"
 async-trait = "0.1"
+uuid = { version = "1.0", features = ["v4"] }
+dirs = "5.0"
 
 [build-dependencies]
 slint-build = "1.6"
