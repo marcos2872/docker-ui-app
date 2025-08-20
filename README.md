@@ -89,6 +89,13 @@ Uma aplicação de monitoramento Docker construída com Rust e Slint, oferecendo
 - **Proteção de dados** - Impede remoção de volumes em uso
 - **Driver e metadata** - Informações detalhadas de cada volume
 
+### 🌐 **Gerenciamento Remoto SSH**
+- **Conexão SSH** - Conecte a servidores remotos via SSH
+- **Docker remoto** - Gerencie containers Docker em servidores remotos
+- **Toggle automático** - Alternância automática entre local e remoto
+- **Log de containers** - Exibe containers do servidor no terminal ao conectar
+- **Persistência de servidores** - Salva configurações de servidores SSH
+
 ### ⚡ **Funcionalidades Avançadas**
 - **Interface modular** - Componentes separados e reutilizáveis
 - **Mensagens temporárias** - Feedback com auto-dismiss em 3 segundos
@@ -100,6 +107,8 @@ Uma aplicação de monitoramento Docker construída com Rust e Slint, oferecendo
 
 - **Rust** 1.70+ 
 - **Docker** instalado e rodando
+- **SSH client** (para conexões remotas)
+- **Servidores SSH** com Docker instalado (para gerenciamento remoto)
 
 ### Dependências por sistema
 
@@ -242,27 +251,35 @@ Cada componente é independente e reutilizável, facilitando manutenção e dese
 ### Estrutura do projeto
 ```
 ├── src/
-│   ├── main.rs          # Aplicação principal e gerenciamento de estado
-│   ├── docker.rs        # API Docker e coleta de estatísticas
-│   ├── chart.rs         # Renderização de gráficos
-│   └── build.rs         # Script de compilação Slint
+│   ├── main.rs              # Aplicação principal e gerenciamento de estado
+│   ├── docker.rs            # API Docker local e coleta de estatísticas
+│   ├── docker_remote.rs     # API Docker remota via SSH
+│   ├── docker_manager_switch.rs # Sistema de toggle local/remoto
+│   ├── ssh.rs               # Cliente SSH e gerenciamento de conexões
+│   ├── ssh_persistence.rs   # Persistência de configurações SSH
+│   ├── ssh_ui_integration.rs # Integração SSH com UI
+│   ├── chart.rs             # Renderização de gráficos
+│   ├── lib.rs               # Módulos da biblioteca
+│   └── build.rs             # Script de compilação Slint
 ├── ui/
-│   ├── app.slint        # Interface principal e janela
-│   ├── dashboard.slint  # Dashboard com estatísticas
-│   ├── containers.slint # Tela de containers
-│   ├── container.slint  # Componentes individuais de container
-│   ├── images.slint     # Tela de imagens Docker
-│   ├── network.slint    # Tela de redes
-│   └── volumes.slint    # Tela de volumes
+│   ├── app.slint            # Interface principal e janela
+│   ├── dashboard.slint      # Dashboard com estatísticas
+│   ├── containers.slint     # Tela de containers
+│   ├── container.slint      # Componentes individuais de container
+│   ├── images.slint         # Tela de imagens Docker
+│   ├── network.slint        # Tela de redes
+│   ├── volumes.slint        # Tela de volumes
+│   └── ssh_servers.slint    # Tela de gerenciamento SSH
 ├── assets/
-│   └── *.png            # Ícones da aplicação (múltiplos tamanhos)
+│   └── *.png                # Ícones da aplicação (múltiplos tamanhos)
 ├── images/
-│   └── *.png            # Screenshots da aplicação
-├── builds/              # Pacotes .deb gerados (criado automaticamente)
-├── build-deb.sh         # Script de build versionado
-├── clean-builds.sh      # Script de limpeza de builds
-├── Makefile             # Sistema de build automatizado
-└── Cargo.toml           # Dependências do projeto
+│   └── *.png                # Screenshots da aplicação
+├── builds/                  # Pacotes .deb gerados (criado automaticamente)
+├── ssh_servers.json         # Configurações de servidores SSH (criado automaticamente)
+├── build-deb.sh             # Script de build versionado
+├── clean-builds.sh          # Script de limpeza de builds
+├── Makefile                 # Sistema de build automatizado
+└── Cargo.toml               # Dependências do projeto
 ```
 
 ## 🎯 Como usar
@@ -280,8 +297,10 @@ Cada componente é independente e reutilizável, facilitando manutenção e dese
    - **Volumes**: Gerenciamento de volumes ativos
 
 3. **Funcionalidades principais:**
-   - **Monitoramento**: Gráficos atualizados a cada segundo
+   - **Monitoramento**: Gráficos atualizados a cada segundo (local e remoto)
    - **Controle**: Ações em containers, imagens, networks e volumes
+   - **SSH Remoto**: Conecte a servidores e gerencie Docker remotamente
+   - **Toggle automático**: Sistema alterna entre local/remoto automaticamente
    - **Proteção**: Impede remoção de recursos em uso
    - **Feedback**: Mensagens de sucesso/erro com auto-dismiss
    - **Consistência**: Listas mantêm ordem alfabética
@@ -301,7 +320,12 @@ A aplicação utiliza uma arquitetura modular com componentes Slint separados:
 
 ### Backend Rust
 - **`main.rs`** - Orquestração e estado da aplicação
-- **`docker.rs`** - API Docker e coleta de métricas
+- **`docker.rs`** - API Docker local e coleta de métricas
+- **`docker_remote.rs`** - API Docker remota via SSH com funcionalidade completa
+- **`docker_manager_switch.rs`** - Sistema de alternância entre local/remoto
+- **`ssh.rs`** - Cliente SSH para conexões remotas
+- **`ssh_persistence.rs`** - Persistência de configurações de servidores
+- **`ssh_ui_integration.rs`** - Integração SSH com interface gráfica
 - **`chart.rs`** - Renderização de gráficos em tempo real
 
 ### Sistema de Build
@@ -315,17 +339,21 @@ A aplicação utiliza uma arquitetura modular com componentes Slint separados:
 - **[Rust](https://rust-lang.org/)** - Linguagem de programação
 - **[Slint](https://slint.dev/)** - Framework de interface gráfica
 - **[Bollard](https://github.com/fussybeaver/bollard)** - Client Docker para Rust
+- **[SSH2](https://docs.rs/ssh2/)** - Cliente SSH para conexões remotas
 - **[Plotters](https://github.com/plotters-rs/plotters)** - Biblioteca de gráficos
 - **[Tokio](https://tokio.rs/)** - Runtime assíncrono
+- **[Serde](https://serde.rs/)** - Serialização JSON para persistência
 
 ## 📊 Métricas monitoradas
 
+### Local e Remoto via SSH:
 - **CPU**: Porcentagem de uso em tempo real
 - **Memória**: Uso e limite com porcentagem
 - **Rede**: Bytes recebidos (RX) e transmitidos (TX)
 - **I/O Disco**: Operações de leitura e escrita
 - **Containers**: Total, rodando, parados e pausados
 - **Imagens**: Quantidade total de imagens
+- **Status de conexão**: Local ou remoto ativo
 
 ## 🎨 Interface
 
@@ -393,13 +421,15 @@ Este projeto está licenciado sob a [MIT License](LICENSE).
 
 - [x] **Arquitetura modular** - Componentes Slint separados ✅
 - [x] **Interface responsiva** - Layout otimizado ✅
-- [ ] **Gerenciamento de containers** - Start/stop/restart via UI
+- [x] **Gerenciamento remoto SSH** - Docker via SSH ✅
+- [x] **Toggle automático** - Local/remoto baseado em conexão ✅
+- [x] **Gerenciamento de containers** - Start/stop/restart via UI ✅
 - [ ] **Visualização de logs** - Logs em tempo real
 - [ ] **Métricas avançadas** - Histórico e exportação
 - [ ] **Docker Compose** - Suporte a stacks
 - [ ] **Temas personalizáveis** - Light/Dark mode
 - [ ] **Configuração de alertas** - Notificações
-- [ ] **Multi-host support** - Múltiplos Docker daemons
+- [ ] **Multi-host SSH** - Múltiplos servidores simultâneos
 
 ---
 
