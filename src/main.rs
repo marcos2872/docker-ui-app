@@ -9,10 +9,12 @@ use std::time::{Duration, Instant};
 // Módulos locais
 mod chart;
 mod docker;
+mod docker_remote;
 mod list_containers;
 mod list_images;
 mod list_networks;
 mod list_volumes;
+mod ssh;
 mod ui;
 
 // Tipos do Docker e gráficos
