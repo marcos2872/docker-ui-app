@@ -2,7 +2,7 @@ use slint::ComponentHandle;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use crate::ssh_persistence::{SshPersistence, SavedSshServer};
-use crate::docker_remote::RemoteDockerManager;
+use crate::docker_remote::{RemoteDockerManager, DockerManager};
 use crate::ssh::SshConnection;
 use chrono::{DateTime, Local};
 
@@ -42,6 +42,43 @@ impl SshUiState {
         
         // Atualizar último acesso
         self.persistence.mark_as_connected(server_id)?;
+        
+        // Exibir lista de containers do servidor remoto no terminal
+        match manager.list_containers().await {
+            Ok(containers) => {
+                println!("\n=== CONTAINERS NO SERVIDOR REMOTO ===");
+                if containers.is_empty() {
+                    println!("📭 Nenhum container encontrado no servidor remoto");
+                } else {
+                    println!("📦 {} containers encontrados no servidor:", containers.len());
+                    for (i, container) in containers.iter().enumerate() {
+                        let short_id = &container.id[..std::cmp::min(12, container.id.len())];
+                        let emoji = match container.state.as_str() {
+                            "running" => "🟢",
+                            "exited" => "🔴", 
+                            "paused" => "⏸️",
+                            "created" => "🟡",
+                            _ => "⚪",
+                        };
+                        println!("  {}. {} {} | {} | {} | {}", 
+                            i + 1, 
+                            emoji, 
+                            container.name,
+                            short_id,
+                            container.image,
+                            container.state
+                        );
+                        if !container.ports.is_empty() {
+                            println!("     📡 Portas: {:?}", container.ports);
+                        }
+                    }
+                }
+                println!("=====================================\n");
+            }
+            Err(e) => {
+                println!("❌ Erro ao listar containers do servidor: {}", e);
+            }
+        }
         
         // Guardar conexão ativa
         {
