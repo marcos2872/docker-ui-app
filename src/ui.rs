@@ -1596,7 +1596,7 @@ fn setup_container_stats_timer(
                         .unwrap();
                     }
                     Err(_) => {
-                        // Container pode estar parado, define valores padrão
+                        // Container pode estar parado, define valores padrão e gráficos vazios
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_clone.upgrade() {
                                 ui.set_container_cpu_usage("0.0%".into());
@@ -1604,6 +1604,18 @@ fn setup_container_stats_timer(
                                 ui.set_container_memory_usage("N/A".into());
                                 ui.set_container_network_rx("0 B/s".into());
                                 ui.set_container_network_tx("0 B/s".into());
+                                
+                                // Gera gráficos vazios para containers parados
+                                if let (Ok(renderer), Ok(memory_renderer)) = (
+                                    cpu_renderer_clone.try_lock(),
+                                    memory_renderer_clone.try_lock(),
+                                ) {
+                                    let empty_data = vec![];
+                                    let cpu_chart = renderer.render_line_chart(&empty_data, 100.0);
+                                    let memory_chart = memory_renderer.render_line_chart(&empty_data, 100.0);
+                                    ui.set_container_cpu_chart(cpu_chart);
+                                    ui.set_container_memory_chart(memory_chart);
+                                }
                             }
                         })
                         .unwrap();
