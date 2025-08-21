@@ -1,7 +1,5 @@
-use crate::docker::{
-    ContainerInfo, ContainerStats, CreateContainerRequest, DockerInfo, DockerStatus,
-    DockerSystemUsage, ImageInfo, NetworkInfo, VolumeInfo,
-};
+pub mod types;
+
 use crate::ssh::{SshClient, SshConnection};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -10,9 +8,14 @@ use std::{
     collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
+pub use types::{
+    ContainerInfo, ContainerStats, CreateContainerRequest, DockerInfo, DockerStatus,
+    DockerSystemUsage, ImageInfo, NetworkInfo, VolumeInfo,
+};
+
 
 #[async_trait]
-pub trait DockerManager {
+pub trait DockerManagement {
     async fn list_containers(&self) -> Result<Vec<ContainerInfo>>;
     async fn start_container(&self, container_name: &str) -> Result<()>;
     async fn stop_container(&self, container_name: &str) -> Result<()>;
@@ -54,13 +57,13 @@ struct PreviousStats {
     block_write: u64,
 }
 
-pub struct RemoteDockerManager {
+pub struct DockerManager {
     ssh_client: SshClient,
     connected: bool,
     previous_stats: HashMap<String, PreviousStats>,
 }
 
-impl RemoteDockerManager {
+impl DockerManager {
     pub fn new() -> Self {
         Self {
             ssh_client: SshClient::new(),
@@ -638,7 +641,7 @@ impl RemoteDockerManager {
 }
 
 #[async_trait]
-impl DockerManager for RemoteDockerManager {
+impl DockerManagement for DockerManager {
     async fn list_containers(&self) -> Result<Vec<ContainerInfo>> {
         let output = self.execute_docker_command("ps -a --format json").await?;
         self.parse_containers_from_json(&output).await

@@ -1,4 +1,4 @@
-use crate::docker::{DockerManager, NetworkInfo};
+use crate::docker::{DockerManager, DockerManagement, NetworkInfo};
 use std::sync::Arc;
 
 // Struct para dados das networks no formato Slint

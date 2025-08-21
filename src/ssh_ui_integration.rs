@@ -1,5 +1,7 @@
-use crate::docker_remote::{DockerManager, RemoteDockerManager};
+use crate::docker::{DockerManager, DockerManagement};
 use crate::ssh::SshConnection;
+use crate::ui::setup_docker_ui;
+use crate::{chart::ChartRenderer, AppState, ContainerChartData};
 use crate::ssh_persistence::{SavedSshServer, SshPersistence};
 use chrono::{DateTime, Local};
 use slint::ComponentHandle;
@@ -12,7 +14,7 @@ use crate::{AppWindow, SshServerData};
 #[derive(Clone)]
 pub struct SshUiState {
     pub persistence: Arc<SshPersistence>,
-    pub connections: Arc<Mutex<HashMap<String, RemoteDockerManager>>>,
+    pub connections: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<DockerManager>>>>>,
     pub current_connection: Arc<Mutex<Option<String>>>,
 }
 
@@ -40,7 +42,7 @@ impl SshUiState {
             .get_server(server_id)?
             .ok_or("Server not found")?;
 
-        let mut manager = RemoteDockerManager::new();
+        let mut manager = DockerManager::new();
         let connection = server.to_ssh_connection();
 
         manager.connect(connection).await?;
@@ -90,6 +92,7 @@ impl SshUiState {
         }
 
         // Guardar conexão ativa
+        let manager = Arc::new(tokio::sync::Mutex::new(manager));
         {
             let mut connections = self.connections.lock().unwrap();
             connections.insert(server_id.to_string(), manager);
@@ -111,8 +114,8 @@ impl SshUiState {
 
         if let Some(server_id) = current_id {
             let mut connections = self.connections.lock().unwrap();
-            if let Some(mut manager) = connections.remove(&server_id) {
-                manager.disconnect();
+            if let Some(manager) = connections.remove(&server_id) {
+                manager.blocking_lock().disconnect();
             }
         }
     }
@@ -138,7 +141,14 @@ impl SshUiState {
     }
 }
 
-pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
+pub fn setup_ssh_ui(
+    ui: &AppWindow,
+    ssh_state: Arc<SshUiState>,
+    app_state: AppState,
+    container_chart_data: Arc<Mutex<ContainerChartData>>,
+    container_cpu_renderer: Arc<Mutex<ChartRenderer>>,
+    container_memory_renderer: Arc<Mutex<ChartRenderer>>,
+) {
     // Converter SavedSshServer para SshServerData da UI
     let convert_to_ui_data = |server: SavedSshServer| -> SshServerData {
         let last_connected = server
@@ -234,7 +244,8 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                             ui.set_ssh_servers(ui_servers.as_slice().into());
                         }
                     }
-                }).unwrap();
+                })
+                .unwrap();
             });
 
             return;
@@ -260,6 +271,11 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
             }
         }
 
+        let app_state_clone = app_state.clone();
+        let container_chart_data_clone = container_chart_data.clone();
+        let container_cpu_renderer_clone = container_cpu_renderer.clone();
+        let container_memory_renderer_clone = container_memory_renderer.clone();
+
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
@@ -268,6 +284,14 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
                         println!("Conexão SSH bem-sucedida para servidor: {}", server_id);
                         let server_id_success = server_id.clone();
                         let ssh_state_success = ssh_state.clone();
+
+                        let docker_manager = ssh_state_success
+                            .connections
+                            .lock()
+                            .unwrap()
+                            .get(&server_id_success)
+                            .unwrap()
+                            .clone();
 
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak.upgrade() {
@@ -278,12 +302,15 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
 
                                 // Atualizar lista de servidores (desativa loading)
                                 if let Ok(servers) = ssh_state_success.load_servers() {
-                                    let current_id = ssh_state_success.get_current_server_id().unwrap_or_default();
+                                    let current_id = ssh_state_success
+                                        .get_current_server_id()
+                                        .unwrap_or_default();
                                     let ui_servers: Vec<SshServerData> = servers
                                         .into_iter()
                                         .map(|server| {
                                             let mut ui_data = convert_to_ui_data(server);
-                                            ui_data.is_connected = ui_data.id.as_str() == current_id;
+                                            ui_data.is_connected =
+                                                ui_data.id.as_str() == current_id;
                                             ui_data.is_connecting = false; // Desativa loading
                                             ui_data
                                         })
@@ -291,10 +318,21 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
 
                                     ui.set_ssh_servers(ui_servers.as_slice().into());
                                 }
+
+                                // Setup Docker UI
+                                setup_docker_ui(
+                                    ui.as_weak(),
+                                    app_state_clone,
+                                    docker_manager,
+                                    container_chart_data_clone,
+                                    container_cpu_renderer_clone,
+                                    container_memory_renderer_clone,
+                                );
                             } else {
                                 println!("ERRO: não foi possível atualizar a UI - ui_weak.upgrade() retornou None");
                             }
-                        }).unwrap();
+                        })
+                        .unwrap();
                     }
                     Err(e) => {
                         println!("Erro na conexão SSH para servidor {}: {}", server_id, e);
@@ -543,7 +581,7 @@ pub fn setup_ssh_ui(ui: &AppWindow, ssh_state: Arc<SshUiState>) {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
                 println!("Iniciando teste de conexão SSH...");
-                let mut test_manager = RemoteDockerManager::new();
+                let mut test_manager = DockerManager::new();
                 match test_manager.connect(connection).await {
                     Ok(_) => {
                         println!("Conexão SSH bem-sucedida!");

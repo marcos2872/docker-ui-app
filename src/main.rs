@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 // Módulos locais
 mod chart;
 mod docker;
-mod docker_remote;
 mod list_containers;
 mod list_images;
 mod list_networks;
@@ -22,7 +21,6 @@ mod ui;
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
 
-use crate::ui::{UiApp, setup_docker_ui};
 use crate::ssh_ui_integration::{SshUiState, setup_ssh_ui};
 
 // Estado global da aplicação
@@ -151,20 +149,16 @@ async fn main() -> Result<(), slint::PlatformError> {
     let container_memory_renderer =
         Arc::new(std::sync::Mutex::new(container_memory_chart_renderer));
 
-    // Configura interface Docker e inicia timer
-    let _ui_app = UiApp::new();
-    let _timer = setup_docker_ui(
-        ui.as_weak(),
+    // Configura interface SSH
+    let ssh_state = Arc::new(SshUiState::new().expect("Failed to initialize SSH state"));
+    setup_ssh_ui(
+        &ui,
+        ssh_state,
         app_state,
         container_chart_data,
         container_cpu_renderer,
         container_memory_renderer,
-    )
-    .await;
-
-    // Configura interface SSH
-    let ssh_state = Arc::new(SshUiState::new().expect("Failed to initialize SSH state"));
-    setup_ssh_ui(&ui, ssh_state);
+    );
 
     // Executa aplicação
     ui.run()

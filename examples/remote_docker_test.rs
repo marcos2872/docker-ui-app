@@ -1,5 +1,5 @@
 extern crate teste_docker;
-use teste_docker::docker_remote::{DockerManager, RemoteDockerManager};
+use teste_docker::docker::{DockerManager, DockerManagement};
 use teste_docker::ssh::SshConnection;
 
 #[tokio::main]
@@ -24,7 +24,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Conectar ao Docker remoto
-    let mut docker = RemoteDockerManager::new();
+    let mut docker = DockerManager::new();
 
     println!("\n🔄 Conectando ao servidor remoto...");
     match docker.connect(ssh_connection).await {

@@ -1,4 +1,4 @@
-use crate::docker::{DockerManager, ImageInfo};
+use crate::docker::{DockerManager, DockerManagement, ImageInfo};
 use std::sync::Arc;
 
 // Struct para dados das imagens no formato Slint

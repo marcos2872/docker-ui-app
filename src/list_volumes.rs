@@ -1,4 +1,4 @@
-use crate::docker::{DockerManager, VolumeInfo};
+use crate::docker::{DockerManager, DockerManagement, VolumeInfo};
 use std::sync::Arc;
 
 // Struct para dados dos volumes no formato Slint
