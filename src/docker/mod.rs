@@ -296,7 +296,7 @@ impl DockerManager {
             .as_secs();
 
         for container in containers {
-            if let Ok((
+            let (
                 cpu_percentage,
                 cpu_online_val,
                 memory_usage,
@@ -305,35 +305,34 @@ impl DockerManager {
                 network_tx,
                 block_read,
                 block_write,
-            )) = self.get_container_stats_raw(&container.id).await
-            {
-                let memory_percentage = if memory_limit > 0 {
-                    (memory_usage as f64 / memory_limit as f64) * 100.0
-                } else {
-                    0.0
-                };
+            ) = self.get_container_stats_raw(&container.id).await?;
 
-                containers_stats.push(ContainerStats {
-                    id: container.id.clone(),
-                    name: container.name.clone(),
-                    cpu_percentage,
-                    memory_usage,
-                    memory_limit,
-                    memory_percentage,
-                    network_rx,
-                    network_tx,
-                    block_read,
-                    block_write,
-                });
+            let memory_percentage = if memory_limit > 0 {
+                (memory_usage as f64 / memory_limit as f64) * 100.0
+            } else {
+                0.0
+            };
 
-                online_cpu = cpu_online_val;
-                total_cpu += cpu_percentage;
-                total_memory_usage += memory_usage;
-                total_network_rx += network_rx;
-                total_network_tx += network_tx;
-                total_block_read += block_read;
-                total_block_write += block_write;
-            }
+            containers_stats.push(ContainerStats {
+                id: container.id.clone(),
+                name: container.name.clone(),
+                cpu_percentage,
+                memory_usage,
+                memory_limit,
+                memory_percentage,
+                network_rx,
+                network_tx,
+                block_read,
+                block_write,
+            });
+
+            online_cpu = cpu_online_val;
+            total_cpu += cpu_percentage;
+            total_memory_usage += memory_usage;
+            total_network_rx += network_rx;
+            total_network_tx += network_tx;
+            total_block_read += block_read;
+            total_block_write += block_write;
         }
 
         let memory_percentage = if total_memory_limit > 0 {
@@ -484,7 +483,10 @@ impl DockerManager {
         container_id: &str,
     ) -> Result<(f64, u64, u64, u64, u64, u64, u64, u64)> {
         let output = self
-            .execute_docker_command(&format!("stats --no-stream --format json {}", container_id))
+            .execute_docker_command(&format!(
+                "stats --no-stream --format \"{{{{json .}}}}\" {}",
+                container_id
+            ))
             .await?;
 
         match serde_json::from_str::<serde_json::Value>(&output.trim()) {
