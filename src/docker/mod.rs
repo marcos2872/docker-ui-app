@@ -124,9 +124,7 @@ impl DockerManager {
                 Ok(container) => {
                     let id = container["Id"].as_str().unwrap_or("").to_string();
                     let names = container["Names"]
-                        .as_array()
-                        .and_then(|arr| arr.first())
-                        .and_then(|name| name.as_str())
+                    .as_str()
                         .unwrap_or("")
                         .trim_start_matches('/')
                         .to_string();
@@ -602,26 +600,35 @@ impl DockerManager {
     }
 
     fn parse_bytes(&self, bytes_str: &str) -> u64 {
+        let bytes_str = bytes_str.to_lowercase().trim().to_string();
         if bytes_str.is_empty() {
             return 0;
         }
 
-        let bytes_str = bytes_str.to_lowercase();
-        let (number_part, unit) = if bytes_str.ends_with("kb") {
-            (&bytes_str[..bytes_str.len() - 2], 1024_u64)
-        } else if bytes_str.ends_with("mb") {
-            (&bytes_str[..bytes_str.len() - 2], 1024_u64.pow(2))
-        } else if bytes_str.ends_with("gb") {
-            (&bytes_str[..bytes_str.len() - 2], 1024_u64.pow(3))
-        } else if bytes_str.ends_with("tb") {
-            (&bytes_str[..bytes_str.len() - 2], 1024_u64.pow(4))
-        } else if bytes_str.ends_with("b") {
-            (&bytes_str[..bytes_str.len() - 1], 1)
-        } else {
-            (bytes_str.as_str(), 1)
+        let mut number_part = String::new();
+        let mut unit_part = String::new();
+
+        for char in bytes_str.chars() {
+            if char.is_digit(10) || char == '.' {
+                number_part.push(char);
+            } else {
+                unit_part.push(char);
+            }
+        }
+
+        let number = number_part.parse::<f64>().unwrap_or(0.0);
+        let unit_part = unit_part.trim();
+
+        let multiplier = match unit_part {
+            "b" => 1.0,
+            "kb" | "kib" => 1024.0,
+            "mb" | "mib" => 1024.0 * 1024.0,
+            "gb" | "gib" => 1024.0 * 1024.0 * 1024.0,
+            "tb" | "tib" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
+            _ => 1.0, // Assume bytes if no unit
         };
 
-        number_part.parse::<f64>().unwrap_or(0.0) as u64 * unit
+        (number * multiplier) as u64
     }
 
     fn format_bytes_rate(&self, bytes: u64) -> String {

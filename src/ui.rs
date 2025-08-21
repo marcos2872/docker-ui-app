@@ -380,7 +380,16 @@ pub fn setup_docker_ui(
                     .unwrap();
                 }
                 Err(e) => {
-                    eprintln!("Error getting docker stats: {}", e);
+                            let error_message = format!("Error getting docker stats: {}", e);
+                            eprintln!("{}", error_message);
+                            slint::invoke_from_event_loop(move || {
+                                if let Some(ui) = ui_weak_clone.upgrade() {
+                                    ui.set_notification_message(error_message.into());
+                                    ui.set_notification_is_error(true);
+                                    ui.set_show_notification(true);
+                                }
+                            })
+                            .unwrap();
                 }
             }
         });
