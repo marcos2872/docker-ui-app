@@ -78,7 +78,7 @@ pub async fn setup_docker_ui(
                         update_ui_containers_from_slint(&ui, &containers);
 
                         // Se estivermos na tela de detalhes, atualiza o container selecionado
-                        if ui.get_current_screen() == 5 {
+                        if ui.get_current_screen() == 6 {
                             let selected = ui.get_selected_container();
                             if !selected.name.is_empty() {
                                 // Procura o container atualizado na lista
@@ -1314,8 +1314,8 @@ fn setup_container_logs_timer(
                 return; // Se não conseguir fazer upgrade, sai
             };
 
-        // Só busca logs se estivermos na tela de detalhes (tela 5)
-        if current_screen == 5 && !container_name.is_empty() {
+        // Só busca logs se estivermos na tela de detalhes (tela 6)
+        if current_screen == 6 && !container_name.is_empty() {
             tokio::spawn(async move {
                 let manager = docker_manager_clone.lock().await;
 
@@ -1540,8 +1540,8 @@ fn setup_container_stats_timer(
             return; // Se não conseguir fazer upgrade, sai
         };
 
-        // Só busca stats se estivermos na tela de detalhes (tela 5) e container em execução
-        if current_screen == 5 && !container_name.is_empty() {
+        // Só busca stats se estivermos na tela de detalhes (tela 6) e container em execução
+        if current_screen == 6 && !container_name.is_empty() {
             tokio::spawn(async move {
                 let mut manager = docker_manager_clone.lock().await;
 
