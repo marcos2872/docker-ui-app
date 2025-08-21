@@ -22,7 +22,7 @@ struct ContainerData {
     image: string,
     status: string,
     ports: string,
-    created: string,
+    running_for: string,
 }
 
 struct ImageData {
@@ -192,6 +192,7 @@ export component AppWindow inherits Window {
     callback container-action(string, string);
     callback view-container-details(ContainerData);
     callback load-more-logs();
+    callback toggle-logs();
     callback create-container(string, string, string, string, string, string, string);
     callback cancel-create-container();
 

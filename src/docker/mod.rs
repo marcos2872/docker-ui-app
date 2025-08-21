@@ -133,13 +133,19 @@ impl DockerManager {
                     let state = container["State"].as_str().unwrap_or("").to_string();
                     let status = container["Status"].as_str().unwrap_or("").to_string();
                     let created = container["Created"].as_i64().unwrap_or(0);
+                    
+                    // Parse ports string (formato completo como "8080:80/tcp, 443:443/tcp")
+                    let ports_str = container["Ports"].as_str().unwrap_or("").to_string();
+                    
+                    // Parse running time
+                    let running_for = container["RunningFor"].as_str().unwrap_or("").to_string();
 
-                    // Parse ports
-                    let mut ports = Vec::new();
+                    // Parse ports list (mantendo compatibilidade)
+                    let mut ports_list = Vec::new();
                     if let Some(ports_array) = container["Ports"].as_array() {
                         for port in ports_array {
                             if let Some(public_port) = port["PublicPort"].as_i64() {
-                                ports.push(public_port as i32);
+                                ports_list.push(public_port as i32);
                             }
                         }
                     }
@@ -150,8 +156,10 @@ impl DockerManager {
                         image,
                         state,
                         status,
-                        ports,
+                        ports: ports_str,
+                        ports_list,
                         created,
+                        running_for,
                     });
                 }
                 Err(e) => eprintln!("Failed to parse container JSON: {}", e),

@@ -10,7 +10,7 @@ pub struct SlintContainerData {
     pub image: slint::SharedString,
     pub status: slint::SharedString,
     pub ports: slint::SharedString,
-    pub created: slint::SharedString,
+    pub running_for: slint::SharedString,
 }
 
 impl From<&ContainerInfo> for SlintContainerData {
@@ -18,12 +18,13 @@ impl From<&ContainerInfo> for SlintContainerData {
         let ports_str = if container.ports.is_empty() {
             "Nenhuma".to_string()
         } else {
-            container
-                .ports
-                .iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+            extract_ports_only(&container.ports)
+        };
+
+        let running_for_str = if container.running_for.is_empty() {
+            "-".to_string()
+        } else {
+            container.running_for.clone()
         };
 
         Self {
@@ -31,7 +32,7 @@ impl From<&ContainerInfo> for SlintContainerData {
             image: container.image.clone().into(),
             status: parse_container_status(&container.state, &container.status),
             ports: ports_str.into(),
-            created: format_creation_time(container.created),
+            running_for: running_for_str.into(),
         }
     }
 }
@@ -167,35 +168,54 @@ fn parse_container_status(state: &str, status: &str) -> slint::SharedString {
     }
 }
 
-// Formata o tempo de criação
-fn format_creation_time(created: i64) -> slint::SharedString {
-    if created > 0 {
-        // Convert Unix timestamp to readable format
-        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+// Extrai mapeamento de portas no formato host:container sem IP e sem duplicatas
+// Exemplo: "0.0.0.0:8080->80/tcp, 443->443/tcp" -> "8080:80, 443:443" 
+fn extract_ports_only(ports_str: &str) -> String {
+    if ports_str.is_empty() {
+        return "Nenhuma".to_string();
+    }
 
-        let timestamp = UNIX_EPOCH + Duration::from_secs(created as u64);
-        let now = SystemTime::now();
-
-        match now.duration_since(timestamp) {
-            Ok(duration) => {
-                let days = duration.as_secs() / (24 * 3600);
-                let hours = (duration.as_secs() % (24 * 3600)) / 3600;
-                let minutes = (duration.as_secs() % 3600) / 60;
-
-                if days > 0 {
-                    format!("há {} dias", days).into()
-                } else if hours > 0 {
-                    format!("há {} horas", hours).into()
-                } else if minutes > 0 {
-                    format!("há {} min", minutes).into()
-                } else {
-                    "agora".into()
-                }
-            }
-            Err(_) => "desconhecido".into(),
+    let mut unique_ports = std::collections::HashSet::new();
+    
+    for port_mapping in ports_str.split(',') {
+        let trimmed = port_mapping.trim();
+        
+        // Remove protocolo primeiro se existir: "xxx/tcp" -> "xxx"
+        let without_protocol = if let Some(slash_pos) = trimmed.find('/') {
+            &trimmed[..slash_pos]
+        } else {
+            trimmed
+        };
+        
+        // Processa diferentes formatos de mapeamento de porta
+        if let Some(arrow_pos) = without_protocol.find("->") {
+            // Formato "0.0.0.0:8080->80" ou "8080->80"
+            let host_part = &without_protocol[..arrow_pos];
+            let container_part = &without_protocol[arrow_pos + 2..];
+            
+            // Remove IP se presente: "0.0.0.0:8080" -> "8080"
+            let host_port = if let Some(colon_pos) = host_part.rfind(':') {
+                &host_part[colon_pos + 1..]
+            } else {
+                host_part
+            };
+            
+            unique_ports.insert(format!("{}:{}", host_port, container_part));
+        } else if without_protocol.contains(':') && !without_protocol.contains('.') {
+            // Formato simples "8080:80" (sem IP)
+            unique_ports.insert(without_protocol.to_string());
+        } else if !without_protocol.is_empty() && without_protocol.chars().all(|c| c.is_ascii_digit()) {
+            // Apenas número, assume porta exposta: "80" -> "80:80"
+            unique_ports.insert(format!("{}:{}", without_protocol, without_protocol));
         }
+    }
+
+    if unique_ports.is_empty() {
+        "Nenhuma".to_string()
     } else {
-        "desconhecido".into()
+        let mut ports: Vec<String> = unique_ports.into_iter().collect();
+        ports.sort(); // Ordena para ter resultado consistente
+        ports.join(", ")
     }
 }
 

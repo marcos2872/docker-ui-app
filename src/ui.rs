@@ -106,7 +106,7 @@ pub fn setup_docker_ui(
                                 image: updated_container.image.clone(),
                                 status: updated_container.status.clone(),
                                 ports: updated_container.ports.clone(),
-                                created: updated_container.created.clone(),
+                                running_for: updated_container.running_for.clone(),
                             });
                         }
                     }
@@ -123,6 +123,9 @@ pub fn setup_docker_ui(
 
     // Configura callback para carregar mais logs
     setup_load_more_logs_callback(ui_weak.clone(), docker_manager_shared.clone());
+
+    // Configura callback para toggle de logs
+    setup_toggle_logs_callback(ui_weak.clone());
 
     // Configura timer para logs de container
     setup_container_logs_timer(ui_weak.clone(), docker_manager_shared.clone());
@@ -481,7 +484,7 @@ fn update_ui_containers_from_slint(ui: &AppWindow, containers: &[SlintContainerD
             image: container.image.clone(),
             status: container.status.clone(),
             ports: container.ports.clone(),
-            created: container.created.clone(),
+            running_for: container.running_for.clone(),
         })
         .collect();
 
@@ -1526,6 +1529,18 @@ fn setup_load_more_logs_callback(
                     }
                 }
             });
+        });
+    }
+}
+
+// Configura callback para toggle de logs
+fn setup_toggle_logs_callback(ui_weak: Weak<AppWindow>) {
+    if let Some(ui) = ui_weak.upgrade() {
+        ui.on_toggle_logs(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                let current_state = ui.get_logs_expanded();
+                ui.set_logs_expanded(!current_state);
+            }
         });
     }
 }

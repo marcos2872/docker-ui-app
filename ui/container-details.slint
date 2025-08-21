@@ -3,7 +3,7 @@ struct ContainerData {
     image: string,
     status: string,
     ports: string,
-    created: string,
+    running_for: string,
 }
 
 component Button inherits Rectangle {
@@ -230,7 +230,7 @@ export component ContainerDetails inherits VerticalLayout {
                     }
 
                     Text {
-                        text: "Criado:";
+                        text: "Rodando há:";
                         font-size: 16px;
                         font-weight: 600;
                         color: #9ca3af;
@@ -261,7 +261,7 @@ export component ContainerDetails inherits VerticalLayout {
                     }
 
                     Text {
-                        text: container.created;
+                        text: container.running_for == "" ? "-" : container.running_for;
                         font-size: 16px;
                         color: #ffffff;
                     }

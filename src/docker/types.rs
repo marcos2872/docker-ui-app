@@ -9,8 +9,10 @@ pub struct ContainerInfo {
     pub image: String,
     pub state: String,
     pub status: String,
-    pub ports: Vec<i32>,
+    pub ports: String,  // Mudando para String para incluir formato completo como "8080:80/tcp"
+    pub ports_list: Vec<i32>,  // Mantendo lista numérica para compatibilidade
     pub created: i64,
+    pub running_for: String,  // Novo campo para tempo de execução
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
