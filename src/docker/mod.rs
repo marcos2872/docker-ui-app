@@ -179,19 +179,30 @@ impl DockerManager {
 
             match serde_json::from_str::<serde_json::Value>(line) {
                 Ok(image) => {
-                    let id = image["Id"].as_str().unwrap_or("").to_string();
-                    let repo_tags = image["RepoTags"]
-                        .as_array()
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|tag| tag.as_str())
-                                .map(|s| s.to_string())
-                                .collect()
-                        })
-                        .unwrap_or_else(|| vec!["<none>".to_string()]);
+                    let id = image["ID"].as_str().unwrap_or("").to_string();
+                    
+                    // Constrói nome da imagem como "repository:tag"
+                    let repository = image["Repository"].as_str().unwrap_or("<none>");
+                    let tag = image["Tag"].as_str().unwrap_or("<none>");
+                    
+                    let repo_tags = if repository == "<none>" && tag == "<none>" {
+                        vec!["<none>:<none>".to_string()]
+                    } else {
+                        vec![format!("{}:{}", repository, tag)]
+                    };
 
-                    let created = image["Created"].as_i64().unwrap_or(0);
-                    let size = image["Size"].as_i64().unwrap_or(0);
+                    // Converte CreatedAt para timestamp Unix se possível
+                    let created = if let Some(created_str) = image["CreatedAt"].as_str() {
+                        // Tenta parsear a data, se falhar usa 0
+                        chrono::DateTime::parse_from_str(created_str, "%Y-%m-%d %H:%M:%S %z")
+                            .map(|dt| dt.timestamp())
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    };
+                    
+                    // Converte tamanho de string para bytes
+                    let size = Self::parse_size_string(image["VirtualSize"].as_str().unwrap_or("0B"));
 
                     images.push(ImageInfo {
                         id,
@@ -657,6 +668,39 @@ impl DockerManager {
         let containers = self.list_containers().await?;
         Ok(containers.iter().any(|c| c.name == name))
     }
+
+    // Converte string de tamanho (ex: "137.1MB") para bytes
+    fn parse_size_string(size_str: &str) -> i64 {
+        if size_str.is_empty() || size_str == "0B" {
+            return 0;
+        }
+
+        let size_str = size_str.trim();
+        let mut multiplier = 1i64;
+        let mut numeric_part = size_str;
+
+        if size_str.ends_with("B") {
+            numeric_part = &size_str[..size_str.len() - 1];
+            
+            if numeric_part.ends_with("K") {
+                multiplier = 1024;
+                numeric_part = &numeric_part[..numeric_part.len() - 1];
+            } else if numeric_part.ends_with("M") {
+                multiplier = 1024 * 1024;
+                numeric_part = &numeric_part[..numeric_part.len() - 1];
+            } else if numeric_part.ends_with("G") {
+                multiplier = 1024 * 1024 * 1024;
+                numeric_part = &numeric_part[..numeric_part.len() - 1];
+            } else if numeric_part.ends_with("T") {
+                multiplier = 1024 * 1024 * 1024 * 1024;
+                numeric_part = &numeric_part[..numeric_part.len() - 1];
+            }
+        }
+
+        numeric_part.parse::<f64>()
+            .map(|num| (num * multiplier as f64) as i64)
+            .unwrap_or(0)
+    }
 }
 
 #[async_trait]
@@ -704,11 +748,34 @@ impl DockerManagement for DockerManager {
 
     async fn list_images(&self) -> Result<Vec<ImageInfo>> {
         let output = self.execute_docker_command("images --format json").await?;
-        self.parse_images_from_json(&output).await
+        let mut images = self.parse_images_from_json(&output).await?;
+        
+        // Verifica quais imagens estão em uso por containers
+        let containers = self.list_containers().await?;
+        for image in &mut images {
+            image.in_use = containers.iter().any(|container| {
+                // Verifica se algum container usa esta imagem
+                container.image == image.tags[0] || 
+                image.tags.iter().any(|tag| container.image == *tag)
+            });
+        }
+        
+        Ok(images)
     }
 
     async fn remove_image(&self, image_id: &str) -> Result<()> {
-        self.execute_docker_command(&format!("rmi -f {}", image_id))
+        // Primeiro verifica se a imagem está em uso
+        let images = self.list_images().await?;
+        let image_in_use = images.iter().find(|img| img.id.starts_with(image_id) || 
+            img.tags.iter().any(|tag| tag.contains(image_id)))
+            .map(|img| img.in_use)
+            .unwrap_or(false);
+            
+        if image_in_use {
+            return Err(anyhow::anyhow!("Não é possível remover esta imagem pois ela está sendo usada por um ou mais containers"));
+        }
+        
+        self.execute_docker_command(&format!("rmi {}", image_id))
             .await?;
         Ok(())
     }
