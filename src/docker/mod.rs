@@ -333,6 +333,8 @@ impl DockerManager {
             total_network_tx += network_tx;
             total_block_read += block_read;
             total_block_write += block_write;
+
+            eprintln!("[DEBUG] Stats for container {}: CPU: {}%, Mem: {}/{}", container.name, cpu_percentage, memory_usage, memory_limit);
         }
 
         let memory_percentage = if total_memory_limit > 0 {
@@ -491,12 +493,12 @@ impl DockerManager {
 
         match serde_json::from_str::<serde_json::Value>(&output.trim()) {
             Ok(stats) => {
-                let cpu_percent = stats["CPUPerc"]
-                    .as_str()
-                    .unwrap_or("0%")
-                    .trim_end_matches('%')
-                    .parse::<f64>()
-                    .unwrap_or(0.0);
+            let cpu_str = stats["CPUPerc"].as_str().unwrap_or("0%");
+            let cpu_percent = if cpu_str == "--" {
+                0.0
+            } else {
+                cpu_str.trim_end_matches('%').parse::<f64>().unwrap_or(0.0)
+            };
 
                 let memory_usage_str = stats["MemUsage"].as_str().unwrap_or("0B / 0B");
                 let (memory_usage, memory_limit) = self.parse_memory_usage(memory_usage_str);
