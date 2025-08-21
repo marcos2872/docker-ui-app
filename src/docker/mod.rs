@@ -752,11 +752,35 @@ impl DockerManagement for DockerManager {
         
         // Verifica quais imagens estão em uso por containers
         let containers = self.list_containers().await?;
+        
         for image in &mut images {
             image.in_use = containers.iter().any(|container| {
-                // Verifica se algum container usa esta imagem
-                container.image == image.tags[0] || 
-                image.tags.iter().any(|tag| container.image == *tag)
+                // Verifica se algum container usa esta imagem com comparação flexível
+                let container_image = &container.image;
+                
+                image.tags.iter().any(|tag| {
+                    // Comparação exata
+                    if container_image == tag {
+                        return true;
+                    }
+                    
+                    // Se container não tem tag, adiciona ":latest" 
+                    let container_with_latest = if !container_image.contains(':') {
+                        format!("{}:latest", container_image)
+                    } else {
+                        container_image.clone()
+                    };
+                    
+                    // Se imagem não tem tag, adiciona ":latest"
+                    let tag_with_latest = if !tag.contains(':') {
+                        format!("{}:latest", tag)
+                    } else {
+                        tag.clone()
+                    };
+                    
+                    // Compara com tags normalizadas
+                    container_with_latest == *tag || container_image == &tag_with_latest || container_with_latest == tag_with_latest
+                })
             });
         }
         
