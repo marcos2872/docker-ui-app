@@ -21,6 +21,7 @@ mod ui;
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
 
+use crate::ui::setup_global_callbacks;
 use crate::ssh_ui_integration::{SshUiState, setup_ssh_ui};
 
 // Estado global da aplicação
@@ -148,6 +149,9 @@ async fn main() -> Result<(), slint::PlatformError> {
     let container_cpu_renderer = Arc::new(std::sync::Mutex::new(container_cpu_chart_renderer));
     let container_memory_renderer =
         Arc::new(std::sync::Mutex::new(container_memory_chart_renderer));
+
+    // Configura callbacks globais da UI
+    setup_global_callbacks(ui.as_weak(), app_state.clone());
 
     // Configura interface SSH
     let ssh_state = Arc::new(SshUiState::new().expect("Failed to initialize SSH state"));

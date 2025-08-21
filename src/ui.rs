@@ -386,9 +386,6 @@ pub fn setup_docker_ui(
         });
     });
 
-    // Configura callbacks da interface
-    setup_callbacks(ui_weak, app_state.clone());
-
     timer
 }
 
@@ -1075,7 +1072,7 @@ fn setup_volume_callbacks(
 }
 
 // Configura callbacks da interface
-fn setup_callbacks(ui_weak: Weak<AppWindow>, _app_state: AppState) {
+pub fn setup_global_callbacks(ui_weak: Weak<AppWindow>, _app_state: AppState) {
     let ui = ui_weak.upgrade().unwrap();
 
     // Callback para mudança de tela
