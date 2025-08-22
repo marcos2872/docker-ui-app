@@ -21,8 +21,8 @@ mod ui;
 // Tipos do Docker e gráficos
 use chart::{ChartPoint, ChartRenderer};
 
-use crate::ui::setup_global_callbacks;
 use crate::ssh_ui_integration::{SshUiState, setup_ssh_ui};
+use crate::ui::setup_global_callbacks;
 
 // Estado global da aplicação
 #[derive(Clone)]
@@ -115,6 +115,12 @@ impl ContainerChartData {
         }
         self.last_update = Instant::now();
     }
+
+    fn clear(&mut self) {
+        self.cpu_points.clear();
+        self.memory_points.clear();
+        self.last_update = Instant::now() - Duration::from_secs(2);
+    }
 }
 
 // Função principal assíncrona
@@ -159,10 +165,44 @@ async fn main() -> Result<(), slint::PlatformError> {
         &ui,
         ssh_state,
         app_state,
-        container_chart_data,
+        container_chart_data.clone(),
         container_cpu_renderer,
         container_memory_renderer,
     );
+
+    // Configura callback para limpar dados ao mudar de container
+    {
+        let container_chart_data_clone = container_chart_data.clone();
+        let ui_weak = ui.as_weak();
+
+        ui.on_container_selected(move |container_name| {
+            println!("DEBUG: Container selecionado: {}", container_name);
+
+            // Limpa os dados de gráfico quando um novo container é selecionado
+            if let Ok(mut chart_data) = container_chart_data_clone.try_lock() {
+                chart_data.clear();
+                println!("DEBUG: Dados de gráfico limpos");
+            }
+
+            // Limpa dados da UI
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_container_cpu_usage("0.0%".into());
+                ui.set_container_memory_usage("0 MB".into());
+                ui.set_container_network_rx("0 B/s".into());
+                ui.set_container_network_tx("0 B/s".into());
+                ui.set_container_logs("".into());
+
+                // Reset das configurações de logs e métricas
+                ui.set_logs_expanded(false);
+                ui.set_metrics_expanded(false);
+
+                // Reset logs loading
+                ui.set_logs_lines_loaded(50);
+
+                println!("DEBUG: UI limpa para container: {}", container_name);
+            }
+        });
+    }
 
     // Executa aplicação
     ui.run()

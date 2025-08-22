@@ -193,6 +193,7 @@ export component AppWindow inherits Window {
     callback view-container-details(ContainerData);
     callback load-more-logs();
     callback toggle-logs();
+    callback container-selected(string);
     callback create-container(string, string, string, string, string, string, string);
     callback cancel-create-container();
 
@@ -353,6 +354,7 @@ export component AppWindow inherits Window {
                     root.selected-container = container;
                     root.current-screen = 6;
                     root.logs-lines-loaded = 50; // Reset para 50 linhas quando muda de container
+                    root.container-selected(container.name); // Chama nosso callback personalizado
                 }
                 create-container-clicked => {
                     root.show-create-modal = true;

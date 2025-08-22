@@ -1350,9 +1350,14 @@ fn setup_container_logs_timer(
                     .await
                 {
                     Ok(logs) => {
+                        let container_name_check = container_name.clone();
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_clone.upgrade() {
-                                ui.set_container_logs(logs.into());
+                                // Verifica se ainda é o mesmo container selecionado
+                                let current_selected = ui.get_selected_container();
+                                if current_selected.name == container_name_check {
+                                    ui.set_container_logs(logs.into());
+                                }
                             }
                         })
                         .unwrap();
@@ -1545,6 +1550,7 @@ fn setup_toggle_logs_callback(ui_weak: Weak<AppWindow>) {
     }
 }
 
+
 // Configura timer para atualizar stats do container selecionado
 fn setup_container_stats_timer(
     ui_weak: Weak<AppWindow>,
@@ -1595,6 +1601,13 @@ fn setup_container_stats_timer(
 
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_clone.upgrade() {
+                                // Verifica se ainda é o mesmo container antes de atualizar
+                                let current_container = ui.get_selected_container().name.to_string();
+                                if current_container != container_name {
+                                    println!("DEBUG: Stats timer cancelado - container mudou de {} para {}", container_name, current_container);
+                                    return;
+                                }
+                                
                                 ui.set_container_cpu_usage(format!("{:.1}%", cpu).into());
                                 ui.set_container_cpu_total(format!("{}%", cpu_total * 100).into());
                                 ui.set_container_memory_usage(memory.into());
@@ -1630,6 +1643,13 @@ fn setup_container_stats_timer(
                         // Container pode estar parado, define valores padrão e gráficos vazios
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_clone.upgrade() {
+                                // Verifica se ainda é o mesmo container antes de atualizar
+                                let current_container = ui.get_selected_container().name.to_string();
+                                if current_container != container_name {
+                                    println!("DEBUG: Stats timer error cancelado - container mudou de {} para {}", container_name, current_container);
+                                    return;
+                                }
+                                
                                 ui.set_container_cpu_usage("0.0%".into());
                                 ui.set_container_cpu_total("0%".into());
                                 ui.set_container_memory_usage("N/A".into());
