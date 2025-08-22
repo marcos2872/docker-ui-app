@@ -293,6 +293,30 @@ pub fn setup_docker_ui(
         }
     });
 
+    // Inicializa gráficos vazios para garantir que apareçam
+    {
+        let ui_weak_init = ui_weak.clone();
+        let cpu_chart_renderer_init = app_state.cpu_chart_renderer.clone();
+        let memory_chart_renderer_init = app_state.memory_chart_renderer.clone();
+        
+        slint::invoke_from_event_loop(move || {
+            if let Some(ui) = ui_weak_init.upgrade() {
+                // Renderiza gráficos vazios iniciais
+                let empty_data = vec![];
+                
+                if let Ok(cpu_renderer) = cpu_chart_renderer_init.lock() {
+                    let cpu_chart = cpu_renderer.render_line_chart(&empty_data, 100.0);
+                    ui.set_cpu_chart(cpu_chart);
+                }
+                
+                if let Ok(memory_renderer) = memory_chart_renderer_init.lock() {
+                    let memory_chart = memory_renderer.render_line_chart(&empty_data, 100.0);
+                    ui.set_memory_chart(memory_chart);
+                }
+            }
+        }).unwrap();
+    }
+
     // Timer para atualizar estatísticas a cada segundo
     timer.start(TimerMode::Repeated, Duration::from_secs(1), move || {
         let ui_weak_clone = ui_weak_timer.clone();
@@ -326,9 +350,9 @@ pub fn setup_docker_ui(
                         if let Some(ui) = ui_weak_clone.upgrade() {
                             ui.set_cpu_usage_str(
                                 format!(
-                                    "{:.2}% | {}%",
+                                    "{:.2}% | {} CPUs",
                                     stats.cpu_usage,
-                                    stats.cpu_online * 100
+                                    stats.cpu_online
                                 )
                                 .into(),
                             );
@@ -351,32 +375,34 @@ pub fn setup_docker_ui(
 
                             // Atualiza dados dos gráficos com throttling adequado
                             if let Ok(mut chart_data_lock) = chart_data_clone.lock() {
+                                // Adiciona pontos apenas se deve atualizar (throttling)
                                 if chart_data_lock.should_update() {
                                     chart_data_lock.add_cpu_point(stats.cpu_usage as f32);
                                     chart_data_lock
                                         .add_memory_point(stats.memory_percentage as f32);
-
-                                    // Renderiza gráfico CPU
-                                    let cpu_chart_renderer =
-                                        cpu_chart_renderer_clone.lock().unwrap();
-                                    let cpu_chart = cpu_chart_renderer.render_line_chart(
-                                        &chart_data_lock.cpu_points.make_contiguous(),
-                                        stats.cpu_online as f32 * 100.0,
-                                    );
-                                    ui.set_cpu_chart(cpu_chart);
-
-                                    // Renderiza gráfico memória
-                                    let memory_chart_renderer =
-                                        memory_chart_renderer_clone.lock().unwrap();
-                                    let memory_chart = memory_chart_renderer
-                                        .render_line_chart(
-                                            &chart_data_lock
-                                                .memory_points
-                                                .make_contiguous(),
-                                            100.0,
-                                        );
-                                    ui.set_memory_chart(memory_chart);
                                 }
+
+                                // Sempre renderiza gráficos (para garantir que apareçam)
+                                // Renderiza gráfico CPU
+                                let cpu_chart_renderer =
+                                    cpu_chart_renderer_clone.lock().unwrap();
+                                let cpu_chart = cpu_chart_renderer.render_line_chart(
+                                    &chart_data_lock.cpu_points.make_contiguous(),
+                                    stats.cpu_online as f32 * 100.0,
+                                );
+                                ui.set_cpu_chart(cpu_chart);
+
+                                // Renderiza gráfico memória
+                                let memory_chart_renderer =
+                                    memory_chart_renderer_clone.lock().unwrap();
+                                let memory_chart = memory_chart_renderer
+                                    .render_line_chart(
+                                        &chart_data_lock
+                                            .memory_points
+                                            .make_contiguous(),
+                                        100.0,
+                                    );
+                                ui.set_memory_chart(memory_chart);
                             }
                         }
                     })

@@ -315,7 +315,7 @@ impl DockerManager {
         let mut containers_stats = Vec::new();
 
         let mut total_cpu = 0.0;
-        let mut online_cpu = 0;
+        let mut online_cpu = self.get_cpu_count().await.unwrap_or(1); // Inicializa com valor real de CPUs
         let mut total_memory_usage = 0u64;
         let total_memory_limit = self.get_system_memory_limit().await?;
         let mut total_network_rx = 0u64;
@@ -359,7 +359,9 @@ impl DockerManager {
                 block_write,
             });
 
-            online_cpu = cpu_online_val;
+            if cpu_online_val > 0 {
+                online_cpu = cpu_online_val;
+            }
             total_cpu += cpu_percentage;
             total_memory_usage += memory_usage;
             total_network_rx += network_rx;
