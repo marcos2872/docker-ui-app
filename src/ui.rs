@@ -384,7 +384,6 @@ pub fn setup_docker_ui(
                 }
                 Err(e) => {
                             let error_message = format!("Error getting docker stats: {}", e);
-                            eprintln!("{}", error_message);
                             slint::invoke_from_event_loop(move || {
                                 if let Some(ui) = ui_weak_clone.upgrade() {
                                     ui.set_notification_message(error_message.into());
@@ -1624,7 +1623,6 @@ fn setup_container_stats_timer(
                                 // Verifica se ainda é o mesmo container antes de atualizar
                                 let current_container = ui.get_selected_container().name.to_string();
                                 if current_container != container_name {
-                                    println!("DEBUG: Stats timer cancelado - container mudou de {} para {}", container_name, current_container);
                                     stats_running_clone.store(false, std::sync::atomic::Ordering::Relaxed);
                                     return;
                                 }
@@ -1669,7 +1667,6 @@ fn setup_container_stats_timer(
                                 // Verifica se ainda é o mesmo container antes de atualizar
                                 let current_container = ui.get_selected_container().name.to_string();
                                 if current_container != container_name {
-                                    println!("DEBUG: Stats timer error cancelado - container mudou de {} para {}", container_name, current_container);
                                     stats_running_clone.store(false, std::sync::atomic::Ordering::Relaxed);
                                     return;
                                 }

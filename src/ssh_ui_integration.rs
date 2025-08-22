@@ -50,46 +50,8 @@ impl SshUiState {
         // Atualizar último acesso
         self.persistence.mark_as_connected(server_id)?;
 
-        // Exibir lista de containers do servidor remoto no terminal
-        match manager.list_containers().await {
-            Ok(containers) => {
-                println!("\n=== CONTAINERS NO SERVIDOR REMOTO ===");
-                if containers.is_empty() {
-                    println!("📭 Nenhum container encontrado no servidor remoto");
-                } else {
-                    println!(
-                        "📦 {} containers encontrados no servidor:",
-                        containers.len()
-                    );
-                    for (i, container) in containers.iter().enumerate() {
-                        let short_id = &container.id[..std::cmp::min(12, container.id.len())];
-                        let emoji = match container.state.as_str() {
-                            "running" => "🟢",
-                            "exited" => "🔴",
-                            "paused" => "⏸️",
-                            "created" => "🟡",
-                            _ => "⚪",
-                        };
-                        println!(
-                            "  {}. {} {} | {} | {} | {}",
-                            i + 1,
-                            emoji,
-                            container.name,
-                            short_id,
-                            container.image,
-                            container.state
-                        );
-                        if !container.ports.is_empty() {
-                            println!("     📡 Portas: {:?}", container.ports);
-                        }
-                    }
-                }
-                println!("=====================================\n");
-            }
-            Err(e) => {
-                println!("❌ Erro ao listar containers do servidor: {}", e);
-            }
-        }
+        // Lista containers do servidor remoto
+        let _ = manager.list_containers().await;
 
         // Guardar conexão ativa
         let manager = Arc::new(tokio::sync::Mutex::new(manager));
@@ -195,7 +157,6 @@ pub fn setup_ssh_ui(
         let is_disconnect = current_connected == server_id;
 
         if is_disconnect {
-            println!("Desconectando servidor com ID: {}", server_id);
 
             // Ativar loading para desconectar
             if let Some(ui) = ui_weak.upgrade() {
@@ -251,7 +212,6 @@ pub fn setup_ssh_ui(
             return;
         }
 
-        println!("Conectando servidor com ID: {}", server_id);
 
         // Ativar loading
         if let Some(ui) = ui_weak.upgrade() {
@@ -281,7 +241,6 @@ pub fn setup_ssh_ui(
             rt.block_on(async {
                 match ssh_state.connect_to_server(&server_id).await {
                     Ok(_) => {
-                        println!("Conexão SSH bem-sucedida para servidor: {}", server_id);
                         let server_id_success = server_id.clone();
                         let ssh_state_success = ssh_state.clone();
 
@@ -329,13 +288,11 @@ pub fn setup_ssh_ui(
                                     container_memory_renderer_clone,
                                 );
                             } else {
-                                println!("ERRO: não foi possível atualizar a UI - ui_weak.upgrade() retornou None");
                             }
                         })
                         .unwrap();
                     }
                     Err(e) => {
-                        println!("Erro na conexão SSH para servidor {}: {}", server_id, e);
                         let error_msg = std::format!("Erro na conexão: {}", e);
 
                         slint::invoke_from_event_loop(move || {
@@ -360,7 +317,6 @@ pub fn setup_ssh_ui(
                                     ui.set_ssh_servers(ui_servers.as_slice().into());
                                 }
                             } else {
-                                println!("ERRO: não foi possível atualizar a UI - ui_weak.upgrade() retornou None");
                             }
                         }).unwrap();
                     }
@@ -565,7 +521,6 @@ pub fn setup_ssh_ui(
     let _ssh_state_clone = ssh_state.clone();
     let ui_weak = ui.as_weak();
     ui.on_ssh_test_connection(move |server_data| {
-        println!("Teste de conexão iniciado para: {}@{}", server_data.username.as_str(), server_data.host.as_str());
         let ui_weak = ui_weak.clone();
         let connection = SshConnection {
             host: server_data.host.to_string(),
@@ -580,41 +535,34 @@ pub fn setup_ssh_ui(
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                println!("Iniciando teste de conexão SSH...");
                 let mut test_manager = DockerManager::new();
                 match test_manager.connect(connection).await {
                     Ok(_) => {
-                        println!("Conexão SSH bem-sucedida!");
                         test_manager.disconnect();
 
                         // Usar invoke_from_event_loop para atualizar a UI na thread principal
                         let ui_weak_success = ui_weak.clone();
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_success.upgrade() {
-                                println!("Atualizando UI com sucesso...");
                                 ui.set_ssh_is_testing(false);
                                 ui.set_notification_message("Conexão SSH testada com sucesso!".into());
                                 ui.set_notification_is_error(false);
                                 ui.set_show_notification(true);
                             } else {
-                                println!("ERRO: não foi possível atualizar a UI - ui_weak.upgrade() retornou None");
                             }
                         }).unwrap();
                     }
                     Err(e) => {
-                        println!("Erro na conexão SSH: {}", e);
                         let error_msg = std::format!("Falha no teste: {}", e);
                         let ui_weak_error = ui_weak.clone();
 
                         slint::invoke_from_event_loop(move || {
                             if let Some(ui) = ui_weak_error.upgrade() {
-                                println!("Atualizando UI com erro...");
                                 ui.set_ssh_is_testing(false);
                                 ui.set_notification_message(error_msg.into());
                                 ui.set_notification_is_error(true);
                                 ui.set_show_notification(true);
                             } else {
-                                println!("ERRO: não foi possível atualizar a UI - ui_weak.upgrade() retornou None");
                             }
                         }).unwrap();
                     }

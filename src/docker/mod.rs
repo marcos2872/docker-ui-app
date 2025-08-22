@@ -162,7 +162,7 @@ impl DockerManager {
                         running_for,
                     });
                 }
-                Err(e) => eprintln!("Failed to parse container JSON: {}", e),
+                Err(_) => {}
             }
         }
 
@@ -212,7 +212,7 @@ impl DockerManager {
                         in_use: false, // Seria necessário verificar separadamente
                     });
                 }
-                Err(e) => eprintln!("Failed to parse image JSON: {}", e),
+                Err(_) => {}
             }
         }
 
@@ -353,7 +353,6 @@ impl DockerManager {
             total_block_read += block_read;
             total_block_write += block_write;
 
-            eprintln!("[DEBUG] Stats for container {}: CPU: {}%, Mem: {}/{}", container.name, cpu_percentage, memory_usage, memory_limit);
         }
 
         let memory_percentage = if total_memory_limit > 0 {
@@ -833,7 +832,7 @@ impl DockerManagement for DockerManager {
                         is_system,
                     });
                 }
-                Err(e) => eprintln!("Failed to parse network JSON: {}", e),
+                Err(_) => {}
             }
         }
 
@@ -864,7 +863,7 @@ impl DockerManagement for DockerManager {
                         containers_count: 0,
                     });
                 }
-                Err(e) => eprintln!("Failed to parse volume JSON: {}", e),
+                Err(_) => {}
             }
         }
 

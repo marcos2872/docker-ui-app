@@ -175,13 +175,10 @@ async fn main() -> Result<(), slint::PlatformError> {
         let container_chart_data_clone = container_chart_data.clone();
         let ui_weak = ui.as_weak();
 
-        ui.on_container_selected(move |container_name| {
-            println!("DEBUG: Container selecionado: {}", container_name);
-
+        ui.on_container_selected(move |_container_name| {
             // Limpa os dados de gráfico quando um novo container é selecionado
             if let Ok(mut chart_data) = container_chart_data_clone.try_lock() {
                 chart_data.clear();
-                println!("DEBUG: Dados de gráfico limpos");
             }
 
             // Limpa dados da UI
@@ -198,8 +195,6 @@ async fn main() -> Result<(), slint::PlatformError> {
 
                 // Reset logs loading
                 ui.set_logs_lines_loaded(50);
-
-                println!("DEBUG: UI limpa para container: {}", container_name);
             }
         });
     }
