@@ -33,6 +33,7 @@ pub struct NetworkInfo {
     pub created: String,
     pub containers_count: i32,
     pub is_system: bool,
+    pub in_use: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

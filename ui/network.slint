@@ -8,6 +8,7 @@ struct NetworkData {
     created: string,
     containers_count: int,
     is_system: bool,
+    in_use: bool,
 }
 
 component Button inherits Rectangle {
@@ -63,12 +64,13 @@ component ErrorMessage inherits Rectangle {
 }
 
 component StatusIndicator inherits Rectangle {
-    in property <int> containers_count;
+    in property <bool> in_use;
+    in property <bool> is_system;
 
     width: 12px;
     height: 12px;
     border-radius: 6px;
-    background: containers_count > 0 ? #f59e0b : #10b981; // Amarelo se em uso, verde se livre
+    background: in_use ? #ef4444 : (is_system ? #f59e0b : #10b981); // Vermelho se em uso, amarelo se sistema, verde se livre
 }
 
 component NetworkItem inherits Rectangle {
@@ -88,7 +90,8 @@ component NetworkItem inherits Rectangle {
         HorizontalLayout {
             spacing: 16px;
             StatusIndicator {
-                containers_count: network.containers_count;
+                in_use: network.in_use;
+                is_system: network.is_system;
             }
 
             VerticalLayout {
@@ -127,8 +130,8 @@ component NetworkItem inherits Rectangle {
                 alignment: center;
 
                 Text {
-                    text: network.containers_count > 0 ? (network.containers_count + " container" + (network.containers_count == 1 ? "" : "s") + " conectado" + (network.containers_count == 1 ? "" : "s")) : "Nenhum container";
-                    color: network.containers_count > 0 ? #f59e0b : #6b7280;
+                    text: network.in_use ? "Em uso por containers" : (network.is_system ? "Network do sistema" : "Disponível");
+                    color: network.in_use ? #ef4444 : (network.is_system ? #f59e0b : #10b981);
                     font-size: 12px;
                     font-weight: 600;
                 }
@@ -148,7 +151,7 @@ component NetworkItem inherits Rectangle {
                 Button {
                     text: loading-action == network.id + "_remove" ? "..." : "Deletar";
                     bg: loading-action == network.id + "_remove" ? #6b7280 : #1A1B1B;
-                    enabled: network.containers_count == 0 && loading-action == ""; // Só habilita se não tiver containers conectados
+                    enabled: !network.in_use && loading-action == ""; // Só habilita se não estiver em uso
                         clicked => {
                         if (loading-action == "") {
                             network-action("remove");

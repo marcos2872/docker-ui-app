@@ -11,6 +11,7 @@ pub struct SlintNetworkData {
     pub created: slint::SharedString,
     pub containers_count: i32,
     pub is_system: bool,
+    pub in_use: bool,
 }
 
 impl From<&NetworkInfo> for SlintNetworkData {
@@ -23,6 +24,7 @@ impl From<&NetworkInfo> for SlintNetworkData {
             created: format_creation_time(&network.created),
             containers_count: network.containers_count,
             is_system: network.is_system,
+            in_use: network.in_use,
         }
     }
 }

@@ -446,6 +446,7 @@ fn update_ui_networks_from_slint(ui: &AppWindow, networks: &[SlintNetworkData]) 
             created: network.created.clone(),
             containers_count: network.containers_count,
             is_system: network.is_system,
+            in_use: network.in_use,
         })
         .collect();
 

@@ -247,6 +247,13 @@ impl DockerManager {
     }
 
     pub async fn remove_network(&self, network_id: &str) -> Result<()> {
+        // Primeiro verifica se a network está em uso
+        let network_in_use = self.is_network_used_by_containers(network_id).await;
+            
+        if network_in_use {
+            return Err(anyhow::anyhow!("Não é possível remover esta network pois ela possui containers conectados"));
+        }
+
         let output = self
             .execute_docker_command(&format!("network rm {}", network_id))
             .await;
@@ -830,10 +837,16 @@ impl DockerManagement for DockerManager {
                         created: "".to_string(),
                         containers_count: 0, // Seria necessário inspecionar a rede
                         is_system,
+                        in_use: false, // Será calculado posteriormente
                     });
                 }
                 Err(_) => {}
             }
+        }
+
+        // Verifica quais networks estão em uso por containers
+        for network in &mut networks {
+            network.in_use = self.is_network_used_by_containers(&network.name).await;
         }
 
         Ok(networks)
@@ -939,5 +952,27 @@ impl DockerManagement for DockerManager {
 
     async fn create_container(&self, request: CreateContainerRequest) -> Result<String> {
         self.create_container(request).await
+    }
+}
+
+impl DockerManager {
+    // Função auxiliar para verificar se uma network é usada por containers
+    async fn is_network_used_by_containers(&self, network_name: &str) -> bool {
+        // Usa docker network inspect para verificar se há containers conectados
+        match self.execute_docker_command(&format!("network inspect {}", network_name)).await {
+            Ok(output) => {
+                // Parse do JSON retornado pelo inspect
+                if let Ok(networks) = serde_json::from_str::<Vec<serde_json::Value>>(&output) {
+                    if let Some(network) = networks.first() {
+                        if let Some(containers) = network.get("Containers") {
+                            // Se há containers conectados, o objeto não estará vazio
+                            return !containers.as_object().map_or(true, |obj| obj.is_empty());
+                        }
+                    }
+                }
+                false
+            }
+            Err(_) => false, // Se não conseguir inspecionar, assume que não está em uso
+        }
     }
 }
