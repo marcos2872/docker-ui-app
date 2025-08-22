@@ -131,7 +131,7 @@ component VolumeItem inherits Rectangle {
                 alignment: center;
 
                 Text {
-                    text: volume.in_use ? "Em uso por containers" : "Disponível";
+                    text: volume.in_use ? "Vinculado a containers" : "Disponível";
                     color: volume.in_use ? #ef4444 : #10b981;
                     font-size: 12px;
                     font-weight: 600;

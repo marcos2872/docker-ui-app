@@ -130,7 +130,7 @@ component NetworkItem inherits Rectangle {
                 alignment: center;
 
                 Text {
-                    text: network.in_use ? "Em uso por containers" : (network.is_system ? "Network do sistema" : "Disponível");
+                    text: network.in_use ? "Vinculada a containers" : (network.is_system ? "Network do sistema" : "Disponível");
                     color: network.in_use ? #ef4444 : (network.is_system ? #f59e0b : #10b981);
                     font-size: 12px;
                     font-weight: 600;

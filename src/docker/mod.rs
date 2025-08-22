@@ -251,7 +251,7 @@ impl DockerManager {
         let network_in_use = self.is_network_used_by_containers(network_id).await;
             
         if network_in_use {
-            return Err(anyhow::anyhow!("Não é possível remover esta network pois ela possui containers conectados"));
+            return Err(anyhow::anyhow!("Não é possível remover esta network pois ela possui containers conectados (incluindo containers parados)"));
         }
 
         let output = self
@@ -283,7 +283,7 @@ impl DockerManager {
         let volume_in_use = self.is_volume_used_by_containers(volume_name).await;
             
         if volume_in_use {
-            return Err(anyhow::anyhow!("Não é possível remover este volume pois ele está sendo usado por containers"));
+            return Err(anyhow::anyhow!("Não é possível remover este volume pois ele está sendo usado por containers (incluindo containers parados)"));
         }
 
         let output = self
@@ -969,50 +969,83 @@ impl DockerManagement for DockerManager {
 }
 
 impl DockerManager {
-    // Função auxiliar para verificar se uma network é usada por containers
+    // Função auxiliar para verificar se uma network é usada por containers (incluindo parados)
     async fn is_network_used_by_containers(&self, network_name: &str) -> bool {
-        // Usa docker network inspect para verificar se há containers conectados
-        match self.execute_docker_command(&format!("network inspect {}", network_name)).await {
+        // Lista todos os containers (incluindo parados) e verifica se algum usa esta network
+        match self.execute_docker_command("ps -a --format json").await {
             Ok(output) => {
-                // Parse do JSON retornado pelo inspect
-                if let Ok(networks) = serde_json::from_str::<Vec<serde_json::Value>>(&output) {
-                    if let Some(network) = networks.first() {
-                        if let Some(containers) = network.get("Containers") {
-                            // Se há containers conectados, o objeto não estará vazio
-                            return !containers.as_object().map_or(true, |obj| obj.is_empty());
-                        }
+                for line in output.lines() {
+                    if line.trim().is_empty() {
+                        continue;
                     }
-                }
-                false
-            }
-            Err(_) => false, // Se não conseguir inspecionar, assume que não está em uso
-        }
-    }
 
-    // Função auxiliar para verificar se um volume é usado por containers
-    async fn is_volume_used_by_containers(&self, volume_name: &str) -> bool {
-        // Usa docker volume inspect para verificar se há containers conectados
-        match self.execute_docker_command(&format!("volume inspect {}", volume_name)).await {
-            Ok(output) => {
-                // Parse do JSON retornado pelo inspect
-                if let Ok(volumes) = serde_json::from_str::<Vec<serde_json::Value>>(&output) {
-                    if let Some(volume) = volumes.first() {
-                        // Para volumes, verificamos o RefCount (número de referências)
-                        if let Some(ref_count) = volume.get("RefCount") {
-                            return ref_count.as_i64().unwrap_or(0) > 0;
-                        }
-                        
-                        // Alternativamente, verifica o campo UsageData
-                        if let Some(usage_data) = volume.get("UsageData") {
-                            if let Some(ref_count) = usage_data.get("RefCount") {
-                                return ref_count.as_i64().unwrap_or(0) > 0;
+                    if let Ok(container) = serde_json::from_str::<serde_json::Value>(line) {
+                        if let Some(container_id) = container["ID"].as_str() {
+                            // Inspeciona cada container para ver suas networks
+                            if let Ok(inspect_output) = self.execute_docker_command(&format!("inspect {}", container_id)).await {
+                                if let Ok(containers_info) = serde_json::from_str::<Vec<serde_json::Value>>(&inspect_output) {
+                                    if let Some(container_info) = containers_info.first() {
+                                        if let Some(network_settings) = container_info.get("NetworkSettings") {
+                                            if let Some(networks) = network_settings.get("Networks") {
+                                                if networks.get(network_name).is_some() {
+                                                    return true; // Container está conectado a esta network
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
                 false
             }
-            Err(_) => false, // Se não conseguir inspecionar, assume que não está em uso
+            Err(_) => false, // Se não conseguir listar containers, assume que não está em uso
+        }
+    }
+
+    // Função auxiliar para verificar se um volume é usado por containers (incluindo parados)
+    async fn is_volume_used_by_containers(&self, volume_name: &str) -> bool {
+        // Lista todos os containers (incluindo parados) e verifica se algum usa este volume
+        match self.execute_docker_command("ps -a --format json").await {
+            Ok(output) => {
+                for line in output.lines() {
+                    if line.trim().is_empty() {
+                        continue;
+                    }
+
+                    if let Ok(container) = serde_json::from_str::<serde_json::Value>(line) {
+                        if let Some(container_id) = container["ID"].as_str() {
+                            // Inspeciona cada container para ver seus volumes
+                            if let Ok(inspect_output) = self.execute_docker_command(&format!("inspect {}", container_id)).await {
+                                if let Ok(containers_info) = serde_json::from_str::<Vec<serde_json::Value>>(&inspect_output) {
+                                    if let Some(container_info) = containers_info.first() {
+                                        // Verifica volumes montados
+                                        if let Some(mounts) = container_info.get("Mounts") {
+                                            if let Some(mounts_array) = mounts.as_array() {
+                                                for mount in mounts_array {
+                                                    if let Some(source) = mount.get("Source") {
+                                                        if source.as_str() == Some(volume_name) {
+                                                            return true; // Volume está sendo usado
+                                                        }
+                                                    }
+                                                    if let Some(name) = mount.get("Name") {
+                                                        if name.as_str() == Some(volume_name) {
+                                                            return true; // Volume nomeado está sendo usado
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                false
+            }
+            Err(_) => false, // Se não conseguir listar containers, assume que não está em uso
         }
     }
 }
