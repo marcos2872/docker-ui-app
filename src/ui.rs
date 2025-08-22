@@ -466,6 +466,7 @@ fn update_ui_volumes_from_slint(ui: &AppWindow, volumes: &[SlintVolumeData]) {
             mountpoint: volume.mountpoint.clone(),
             created: volume.created.clone(),
             containers_count: volume.containers_count,
+            in_use: volume.in_use,
         })
         .collect();
 

@@ -9,6 +9,7 @@ pub struct SlintVolumeData {
     pub mountpoint: slint::SharedString,
     pub created: slint::SharedString,
     pub containers_count: i32,
+    pub in_use: bool,
 }
 
 impl From<&VolumeInfo> for SlintVolumeData {
@@ -19,6 +20,7 @@ impl From<&VolumeInfo> for SlintVolumeData {
             mountpoint: volume.mountpoint.clone().into(),
             created: format_creation_time(&volume.created),
             containers_count: volume.containers_count,
+            in_use: volume.in_use,
         }
     }
 }

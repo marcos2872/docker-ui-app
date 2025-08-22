@@ -43,6 +43,7 @@ pub struct VolumeInfo {
     pub mountpoint: String,
     pub created: String,
     pub containers_count: i32,
+    pub in_use: bool,
 }
 
 // Status possíveis do Docker

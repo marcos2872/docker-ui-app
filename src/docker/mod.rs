@@ -279,6 +279,13 @@ impl DockerManager {
     }
 
     pub async fn remove_volume(&self, volume_name: &str) -> Result<()> {
+        // Primeiro verifica se o volume está em uso
+        let volume_in_use = self.is_volume_used_by_containers(volume_name).await;
+            
+        if volume_in_use {
+            return Err(anyhow::anyhow!("Não é possível remover este volume pois ele está sendo usado por containers"));
+        }
+
         let output = self
             .execute_docker_command(&format!("volume rm {}", volume_name))
             .await;
@@ -874,10 +881,16 @@ impl DockerManagement for DockerManager {
                         mountpoint: "".to_string(), // Seria necessário inspecionar o volume
                         created: "".to_string(),
                         containers_count: 0,
+                        in_use: false, // Será calculado posteriormente
                     });
                 }
                 Err(_) => {}
             }
+        }
+
+        // Verifica quais volumes estão em uso por containers
+        for volume in &mut volumes {
+            volume.in_use = self.is_volume_used_by_containers(&volume.name).await;
         }
 
         Ok(volumes)
@@ -967,6 +980,33 @@ impl DockerManager {
                         if let Some(containers) = network.get("Containers") {
                             // Se há containers conectados, o objeto não estará vazio
                             return !containers.as_object().map_or(true, |obj| obj.is_empty());
+                        }
+                    }
+                }
+                false
+            }
+            Err(_) => false, // Se não conseguir inspecionar, assume que não está em uso
+        }
+    }
+
+    // Função auxiliar para verificar se um volume é usado por containers
+    async fn is_volume_used_by_containers(&self, volume_name: &str) -> bool {
+        // Usa docker volume inspect para verificar se há containers conectados
+        match self.execute_docker_command(&format!("volume inspect {}", volume_name)).await {
+            Ok(output) => {
+                // Parse do JSON retornado pelo inspect
+                if let Ok(volumes) = serde_json::from_str::<Vec<serde_json::Value>>(&output) {
+                    if let Some(volume) = volumes.first() {
+                        // Para volumes, verificamos o RefCount (número de referências)
+                        if let Some(ref_count) = volume.get("RefCount") {
+                            return ref_count.as_i64().unwrap_or(0) > 0;
+                        }
+                        
+                        // Alternativamente, verifica o campo UsageData
+                        if let Some(usage_data) = volume.get("UsageData") {
+                            if let Some(ref_count) = usage_data.get("RefCount") {
+                                return ref_count.as_i64().unwrap_or(0) > 0;
+                            }
                         }
                     }
                 }

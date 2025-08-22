@@ -7,6 +7,7 @@ struct VolumeData {
     mountpoint: string,
     created: string,
     containers_count: int,
+    in_use: bool,
 }
 
 component Button inherits Rectangle {
@@ -62,12 +63,12 @@ component ErrorMessage inherits Rectangle {
 }
 
 component StatusIndicator inherits Rectangle {
-    in property <int> containers_count;
+    in property <bool> in_use;
 
     width: 12px;
     height: 12px;
     border-radius: 6px;
-    background: containers_count > 0 ? #f59e0b : #10b981; // Amarelo se em uso, verde se livre
+    background: in_use ? #ef4444 : #10b981; // Vermelho se em uso, verde se livre
 }
 
 component VolumeItem inherits Rectangle {
@@ -87,7 +88,7 @@ component VolumeItem inherits Rectangle {
         HorizontalLayout {
             spacing: 16px;
             StatusIndicator {
-                containers_count: volume.containers_count;
+                in_use: volume.in_use;
             }
 
             VerticalLayout {
@@ -130,8 +131,8 @@ component VolumeItem inherits Rectangle {
                 alignment: center;
 
                 Text {
-                    text: volume.containers_count > 0 ? (volume.containers_count + " container" + (volume.containers_count == 1 ? "" : "s") + " conectado" + (volume.containers_count == 1 ? "" : "s")) : "Nenhum container";
-                    color: volume.containers_count > 0 ? #f59e0b : #6b7280;
+                    text: volume.in_use ? "Em uso por containers" : "Disponível";
+                    color: volume.in_use ? #ef4444 : #10b981;
                     font-size: 12px;
                     font-weight: 600;
                 }
@@ -151,7 +152,7 @@ component VolumeItem inherits Rectangle {
                 Button {
                     text: loading-action == volume.name + "_remove" ? "..." : "Deletar";
                     bg: loading-action == volume.name + "_remove" ? #6b7280 : #1A1B1B;
-                    enabled: volume.containers_count == 0 && loading-action == ""; // Só habilita se não tiver containers conectados
+                    enabled: !volume.in_use && loading-action == ""; // Só habilita se não estiver em uso
                         clicked => {
                         if (loading-action == "") {
                             volume-action("remove");
