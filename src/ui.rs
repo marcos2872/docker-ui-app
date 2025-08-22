@@ -1317,10 +1317,16 @@ fn setup_container_logs_timer(
     docker_manager: Arc<tokio::sync::Mutex<DockerManager>>,
 ) {
     let timer = Timer::default();
+    let logs_running = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     timer.start(TimerMode::Repeated, Duration::from_secs(1), move || {
+        // Verifica se já há uma operação de logs em execução
+        if logs_running.load(std::sync::atomic::Ordering::Relaxed) {
+            return; // Pula esta execução se já houver uma em andamento
+        }
         let ui_weak_clone = ui_weak.clone();
         let docker_manager_clone = docker_manager.clone();
+        let logs_running_clone = logs_running.clone();
 
         // Coleta as informações necessárias antes do tokio::spawn
         let (current_screen, container_name, lines_loaded) =
@@ -1335,6 +1341,8 @@ fn setup_container_logs_timer(
 
         // Só busca logs se estivermos na tela de detalhes (tela 6)
         if current_screen == 6 && !container_name.is_empty() {
+            // Marca que uma operação está em execução
+            logs_running_clone.store(true, std::sync::atomic::Ordering::Relaxed);
             tokio::spawn(async move {
                 let manager = docker_manager_clone.lock().await;
 
@@ -1359,11 +1367,14 @@ fn setup_container_logs_timer(
                                     ui.set_container_logs(logs.into());
                                 }
                             }
+                            // Marca como finalizado após atualizar a UI
+                            logs_running_clone.store(false, std::sync::atomic::Ordering::Relaxed);
                         })
                         .unwrap();
                     }
                     Err(_) => {
                         // Ignora erros de logs para não poluir interface
+                        logs_running_clone.store(false, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
             });
@@ -1560,13 +1571,20 @@ fn setup_container_stats_timer(
     container_memory_renderer: Arc<std::sync::Mutex<ChartRenderer>>,
 ) {
     let timer = Timer::default();
+    let stats_running = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     timer.start(TimerMode::Repeated, Duration::from_secs(1), move || {
+        // Verifica se já há uma operação de stats em execução
+        if stats_running.load(std::sync::atomic::Ordering::Relaxed) {
+            return; // Pula esta execução se já houver uma em andamento
+        }
+
         let ui_weak_clone = ui_weak.clone();
         let docker_manager_clone = docker_manager.clone();
         let chart_data_clone = container_chart_data.clone();
         let cpu_renderer_clone = container_cpu_renderer.clone();
         let memory_renderer_clone = container_memory_renderer.clone();
+        let stats_running_clone = stats_running.clone();
 
         // Coleta as informações necessárias antes do tokio::spawn
         let (current_screen, container_name) = if let Some(ui) = ui_weak_clone.upgrade() {
@@ -1579,6 +1597,8 @@ fn setup_container_stats_timer(
 
         // Só busca stats se estivermos na tela de detalhes (tela 6) e container em execução
         if current_screen == 6 && !container_name.is_empty() {
+            // Marca que uma operação está em execução
+            stats_running_clone.store(true, std::sync::atomic::Ordering::Relaxed);
             tokio::spawn(async move {
                 let mut manager = docker_manager_clone.lock().await;
 
@@ -1605,6 +1625,7 @@ fn setup_container_stats_timer(
                                 let current_container = ui.get_selected_container().name.to_string();
                                 if current_container != container_name {
                                     println!("DEBUG: Stats timer cancelado - container mudou de {} para {}", container_name, current_container);
+                                    stats_running_clone.store(false, std::sync::atomic::Ordering::Relaxed);
                                     return;
                                 }
                                 
@@ -1636,6 +1657,8 @@ fn setup_container_stats_timer(
                                     ui.set_container_memory_chart(memory_chart);
                                 }
                             }
+                            // Marca como finalizado após atualizar a UI
+                            stats_running_clone.store(false, std::sync::atomic::Ordering::Relaxed);
                         })
                         .unwrap();
                     }
@@ -1647,6 +1670,7 @@ fn setup_container_stats_timer(
                                 let current_container = ui.get_selected_container().name.to_string();
                                 if current_container != container_name {
                                     println!("DEBUG: Stats timer error cancelado - container mudou de {} para {}", container_name, current_container);
+                                    stats_running_clone.store(false, std::sync::atomic::Ordering::Relaxed);
                                     return;
                                 }
                                 
@@ -1668,6 +1692,8 @@ fn setup_container_stats_timer(
                                     ui.set_container_memory_chart(memory_chart);
                                 }
                             }
+                            // Marca como finalizado após atualizar a UI
+                            stats_running_clone.store(false, std::sync::atomic::Ordering::Relaxed);
                         })
                         .unwrap();
                     }
